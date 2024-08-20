@@ -88,9 +88,74 @@ def parse_transfac(file_path):
     return matrices
 
 
+def export_pssms(pssms, file_path, out_format='transfac'):
+    """
+    Exports one or several position-specific scoring matrices (PSSM) in a given format.
+
+    The PSSMs are provided as a list of dictionaries, where each dictionary contains metadata and
+    a Polars DataFrame representing the matrix. By default, the function exports the matrices in
+    TRANSFAC format.
+
+    Parameters
+    ----------
+    pssms : List[Dict[str, Union[Dict[str, str], pl.DataFrame]]]
+        A list of dictionaries where each dictionary represents a PSSM. Each dictionary should contain:
+        - 'metadata': A dictionary with keys such as 'AC', 'ID', and 'DE', containing the accession number,
+                      identifier, and description of the matrix, respectively.
+        - 'matrix': A Polars DataFrame with columns 'Position', 'A', 'C', 'G', and 'T', representing the
+                    nucleotide frequencies at each position in the matrix.
+
+    file_path : str
+        The path to the file where the exported matrices will be saved.
+
+    out_format : str, optional
+        The format to export the matrices. Currently supported: 'transfac'. Default is 'transfac'.
+
+    Returns
+    -------
+    None
+        The function writes the exported matrices to the specified file.
+
+    Example
+    -------
+    export_pssms(parsed_matrices, "exported_pssms.txt")
+
+    Notes
+    -----
+    - The default format is 'transfac'. If other formats are needed, the function can be extended to support them.
+    - The function assumes that the input PSSMs are provided in the same structure as the output of the
+      `parse_transfac` function.
+    """
+    if out_format.lower() != 'transfac':
+        raise ValueError("Currently, only 'transfac' format is supported.")
+
+    with open(file_path, 'w') as f:
+        for pssm in pssms:
+            metadata = pssm['metadata']
+            matrix_df = pssm['matrix']
+
+            # Write metadata
+            f.write(f"AC  {metadata.get('AC', '')}\n")
+            f.write("XX\n")
+            f.write(f"ID  {metadata.get('ID', '')}\n")
+            f.write("XX\n")
+            f.write(f"DE  {metadata.get('DE', '')}\n")
+            f.write("P0           a         c         g         t\n")
+
+            # Write matrix
+            for row in matrix_df.iter_rows(named=True):
+                f.write(f"{row['Position']:2d}  {row['A']:10d}  {row['C']:10d}  {row['G']:10d}  {row['T']:10d}\n")
+
+            f.write("XX\n")
+            f.write("//\n")
+            f.write("\n")  # Separate matrices with a blank line
+
+
 if __name__ == '__main__':
     matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
     parsed_matrices = parse_transfac(matrix_file)
     for matrix in parsed_matrices:
         print("Metadata:", matrix['metadata'])
         print("Matrix DataFrame:", matrix['matrix'])
+
+    export_pssms(parsed_matrices, "exported_pssms.txt")
