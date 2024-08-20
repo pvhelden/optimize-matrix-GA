@@ -155,6 +155,59 @@ def export_pssms(pssms, file_path, out_format='transfac'):
             f.write("\n")  # Separate matrices with a blank line
 
 
+def rescale_to_target(numbers, target):
+    """
+    Rescale a list of numbers (integers or floats) so that their sum equals the specified target integer.
+    The output list will contain only integers.
+
+    Parameters:
+    - numbers (list of int/float): The list of numbers to rescale.
+    - target (int): The target sum for the rescaled numbers.
+
+    Returns:
+    - list of int: A list of integers rescaled from the input numbers summing to the target.
+    """
+    if not numbers:
+        return []
+
+    # Calculate the sum of the original numbers
+    total_sum = sum(numbers)
+
+    # Avoid division by zero if total_sum happens to be zero (when all elements are zero)
+    if total_sum == 0:
+        # Distribute the target value equally, as far as possible
+        n = len(numbers)
+        result = [target // n] * n
+        remainder = target % n
+        for i in range(remainder):
+            result[i] += 1
+        return result
+
+    # Calculate scale factor
+    scale_factor = target / total_sum
+
+    # Scale and round numbers
+    scaled_numbers = [x * scale_factor for x in numbers]
+    rounded_numbers = [round(x) for x in scaled_numbers]
+
+    # Calculate the rounding error
+    rounded_sum = sum(rounded_numbers)
+    error = target - rounded_sum
+
+    # If there's an error, distribute it (positive or negative error)
+    if error != 0:
+        # Sort indices of numbers by the size of their fractional parts
+        fractions = [(i, x - int(x)) for i, x in enumerate(scaled_numbers)]
+        # Correct positive or negative discrepancies
+        correction_indices = sorted(fractions, key=lambda x: -abs(x[1] - 0.5) if error < 0 else abs(x[1] - 0.5))
+
+        for i in range(abs(error)):
+            idx = correction_indices[i][0]
+            rounded_numbers[idx] += 1 if error > 0 else -1
+
+    return rounded_numbers
+
+
 def apply_mutation(original_counts, percent_change):
     """
     Applies a mutation to a specific position in a PSSM.
@@ -197,6 +250,9 @@ def apply_mutation(original_counts, percent_change):
                 if j != i and mutated_counts[j] > 0:
                     mutated_counts[j] += round(
                         diff * (original_counts[j] / sum([original_counts[k] for k in range(4) if k != i])))
+
+    if sum(mutated_counts) != total_counts:
+        mutated_counts = rescale_to_target(mutated_counts, total_counts)
 
     return mutated_counts
 
