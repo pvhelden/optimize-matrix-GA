@@ -144,7 +144,7 @@ def export_pssms(pssms, file_path, out_format='transfac'):
 
             # Write matrix
             for row in matrix_df.iter_rows(named=True):
-                f.write(f"{row['Position']:2d}  {row['A']:10d}  {row['C']:10d}  {row['G']:10d}  {row['T']:10d}\n")
+                f.write(f"{row['Position']:<4d}  {row['A']:8d}  {row['C']:8d}  {row['G']:8d}  {row['T']:8d}\n")
 
             f.write("XX\n")
             f.write("//\n")
