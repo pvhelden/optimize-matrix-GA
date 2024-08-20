@@ -1,3 +1,4 @@
+import math
 import random
 import re
 
@@ -176,14 +177,14 @@ def apply_mutation(original_counts, percent_change):
 
     # Select a residue to mutate
     residue_index = random.randint(0, 3)
-    change_amount = round(original_counts[residue_index] * (percent_change / 100))
+    change_amount = min(round(total_counts * (percent_change / 100)), total_counts - mutated_counts[residue_index])
     mutated_counts[residue_index] += change_amount
 
     # Adjust other residues proportionally
     remaining_change = change_amount
     for i in range(4):
         if i != residue_index:
-            adjustment = round(original_counts[i] * (remaining_change / total_counts))
+            adjustment = math.ceil(original_counts[i] * (remaining_change / total_counts))
             mutated_counts[i] -= adjustment
 
     # Ensure no counts fall below zero (compensate from others if necessary)
@@ -228,8 +229,9 @@ def mutate_pssm(matrix, gen_nb=1, n_desc=None, min_percent=5, max_percent=10):
     List[Dict[str, Union[Dict[str, str], pl.DataFrame]]]
         A list of mutated PSSMs, each structured as a dictionary containing 'metadata' and 'matrix'.
     """
+    height = matrix['matrix'].height
     if n_desc is None:
-        n_desc = matrix['matrix'].shape[0]  # Default to number of positions
+        n_desc = height  # Default to number of positions
 
     original_ac = matrix['metadata']['AC']
     # Remove any existing _G#_D# suffix
@@ -242,20 +244,17 @@ def mutate_pssm(matrix, gen_nb=1, n_desc=None, min_percent=5, max_percent=10):
         mutated_matrix_df = matrix['matrix'].clone()
 
         # Randomly select one position to mutate
-        random_position_index = random.randint(0, mutated_matrix_df.shape[0] - 1)
-        selected_row = mutated_matrix_df.slice(random_position_index, 1).to_pandas().iloc[
-            0]  # Get a single row as a Pandas DataFrame
-        position_to_mutate = selected_row['Position']
-        original_counts = [selected_row['A'], selected_row['C'], selected_row['G'], selected_row['T']]
+        random_position_index = random.randint(0, height - 1)
+        original_counts = list(mutated_matrix_df.row(random_position_index))[1:]
 
         percent_change = random.uniform(min_percent, max_percent)
         # Apply mutation using the apply_mutation function
         mutated_counts = apply_mutation(original_counts, percent_change)
 
         # Update the row with mutated counts
-        updates = {col: pl.when(pl.col("Position") == position_to_mutate).then(mutated_counts[i]).otherwise(pl.col(col))
-                   for i, col in enumerate(['A', 'C', 'G', 'T'])}
-        mutated_matrix_df = mutated_matrix_df.with_columns(list(updates.values()))
+        mutated_row = [random_position_index + 1] + mutated_counts
+        for index, item in enumerate(mutated_row):
+            mutated_matrix_df[random_position_index, index] = item
 
         # Update metadata
         mutated_metadata = matrix['metadata'].copy()
@@ -263,7 +262,7 @@ def mutate_pssm(matrix, gen_nb=1, n_desc=None, min_percent=5, max_percent=10):
         mutated_metadata['CC'] = [
             f"AC of original matrix: {original_ac}",
             f"Generation number: {gen_nb}",
-            f"Mutated position {position_to_mutate}, percent change {percent_change:.2f}%"
+            f"Mutated position {random_position_index + 1}, percent change {percent_change:.2f}%"
         ]
 
         mutated_matrices.append({
@@ -285,7 +284,7 @@ def main():
 
     test_matrix = parsed_matrices[1]
     mutated_matrices = mutate_pssm(test_matrix)
-    export_pssms(mutated_matrices, "exported_pssms.txt")
+    export_pssms(mutated_matrices, 'exported_pssms.tf')
 
 
 if __name__ == '__main__':
