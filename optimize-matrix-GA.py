@@ -329,33 +329,29 @@ def mutate_pssm(matrix, gen_nb=1, n_desc=None, min_percent=5, max_percent=10):
     return mutated_matrices
 
 
-def compute_stats(pos_file, neg_file, score_col, group_col, score_threshold=-100):
-    # Function to read and preprocess the data
+def compute_stats(pos_file, neg_file, score_col='weight', group_col='ft_name', score_threshold=-100):
+    # Read and preprocess the data
     def read_data(file, label):
         return pl.read_csv(
             file,
-            comment_char=';',
-            has_header=True
+            comment_prefix=';',
+            has_header=True,
+            separator='\t',
         ).select([
             pl.col(score_col),
             pl.col(group_col),
-            pl.lit(label).alias('label')
-        ]).filter(pl.col(score_col) >= score_threshold)  # Filter out rows with score < -100
+            pl.lit(label).alias('label'),
+        ]).filter(pl.col(score_col) >= score_threshold)
 
     # Load positive and negative datasets with labels
     pos_data = read_data(pos_file, 1)
     neg_data = read_data(neg_file, 0)
-
-    # Combine data from positive and negative datasets
     data = pos_data.vstack(neg_data)
-
-    # Get unique groups
-    groups = data.select(group_col).unique().to_series().to_list()
 
     # Function to compute stats per group
     def compute_group_stats(df):
         # Sort by score in descending order
-        df = df.sort(score_col, reverse=True)
+        df = df.sort(score_col, descending=True)
         scores, labels = df[score_col].to_numpy(), df["label"].to_numpy()
 
         # Compute ROC and AUC
@@ -366,15 +362,12 @@ def compute_stats(pos_file, neg_file, score_col, group_col, score_threshold=-100
         precision, recall, _ = precision_recall_curve(labels, scores)
         pr_auc = average_precision_score(labels, scores)
 
-        # Return a DataFrame with metrics
-        num_positive = labels.sum()
-        num_negative = len(labels) - num_positive
         return pl.DataFrame({
-            "FP": (fpr * num_negative).round().cast(int),
-            "TP": (tpr * num_positive).round().cast(int),
-            "TN": ((1 - fpr) * num_negative).round().cast(int),
-            "FN": ((1 - tpr) * num_positive).round().cast(int),
-            "Sn": tpr,
+            "FP": (fpr * (labels == 0).sum()).astype(int),
+            "TP": (tpr * (labels == 1).sum()).astype(int),
+            "TN": ((1 - fpr) * (labels == 0).sum()).astype(int),
+            "FN": ((1 - tpr) * (labels == 1).sum()).astype(int),
+            "Sn": tpr,  # Sensitivity or TPR
             "PPV": precision,
             "FPR": fpr,
             "TPR": tpr,
@@ -384,10 +377,10 @@ def compute_stats(pos_file, neg_file, score_col, group_col, score_threshold=-100
 
     # Process each group separately
     results = []
-    for group_value in groups:
+    for group_value in data[group_col].unique():
         group_df = data.filter(pl.col(group_col) == group_value)
         group_stats = compute_group_stats(group_df)
-        group_stats = group_stats.with_column(pl.lit(group_value).alias(group_col))
+        group_stats = group_stats.with_columns(pl.lit(group_value).alias(group_col))
         results.append(group_stats)
 
     # Concatenate all results
@@ -397,6 +390,7 @@ def compute_stats(pos_file, neg_file, score_col, group_col, score_threshold=-100
         result_df = pl.DataFrame()
 
     return result_df
+
 
 def main():
     matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
