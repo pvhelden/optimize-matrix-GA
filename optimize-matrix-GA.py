@@ -302,12 +302,12 @@ def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, m
     if n_children is None:
         n_children = height  # Default to number of positions
 
-    original_ac = matrix['metadata']['AC']
-    original_id = matrix['metadata']['ID']
-    original_cc = matrix['metadata']['CC']
+    parent_ac = matrix['metadata']['AC']
+    parent_id = matrix['metadata']['ID']
+    parent_cc = matrix['metadata']['CC']
 
     # Remove any existing _G#_D# suffix
-    ac_prefix = re.sub(r'_G\d+_M\d+_C\d+$', '', original_ac)
+    ac_prefix = re.sub(r'_G\d+_M\d+_C\d+$', '', parent_ac)
     id_prefix = re.sub(r'_G\d+_M\d+_C\d+$', '', matrix['metadata']['ID'])
 
     mutated_matrices = []
@@ -333,11 +333,11 @@ def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, m
         mutated_metadata = matrix['metadata'].copy()
         mutated_metadata['AC'] = f"{ac_prefix}_G{gen_nb}_M{matrix_nb}_C{child_nb}"
         mutated_metadata['ID'] = f"{id_prefix}_G{gen_nb}_M{matrix_nb}_C{child_nb}"
-        mutated_metadata['CC'] = original_cc + [
+        mutated_metadata['CC'] = parent_cc + [
             f"Generation number: {gen_nb}",
-            f"  Original matrix number: {matrix_nb}",
-            f"  AC of original matrix: {original_ac}",
-            f"  ID of original matrix: {original_id}",
+            f"  Parent matrix number: {matrix_nb}",
+            f"  AC of parent matrix: {parent_ac}",
+            f"  ID of parent matrix: {parent_id}",
             f"  Child number: {child_nb}",
             f"  Mutated position {mutated_position_index + 1}, percent change {percent_change:.2f}%"
         ]
