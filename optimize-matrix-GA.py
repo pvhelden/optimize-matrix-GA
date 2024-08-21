@@ -234,11 +234,10 @@ def apply_mutation(original_counts, percent_change):
     mutated_counts[residue_index] += change_amount
 
     # Adjust other residues proportionally
-    remaining_change = change_amount
     for i in range(4):
         if i != residue_index:
-            adjustment = math.ceil(original_counts[i] * (remaining_change / total_counts))
-            mutated_counts[i] -= adjustment
+            adj = math.ceil(original_counts[i] * (change_amount / (total_counts - original_counts[residue_index])))
+            mutated_counts[i] -= adj
 
     # Ensure no counts fall below zero (compensate from others if necessary)
     for i in range(4):
