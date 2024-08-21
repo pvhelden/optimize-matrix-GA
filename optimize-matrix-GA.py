@@ -1,3 +1,7 @@
+import math
+import random
+import re
+
 import polars as pl
 
 
@@ -151,11 +155,192 @@ def export_pssms(pssms, file_path, out_format='transfac'):
             f.write("\n")  # Separate matrices with a blank line
 
 
-if __name__ == '__main__':
+def rescale_to_target(numbers, target):
+    """
+    Rescale a list of numbers (integers or floats) so that their sum equals the specified target integer.
+    The output list will contain only integers.
+
+    Parameters:
+    - numbers (list of int/float): The list of numbers to rescale.
+    - target (int): The target sum for the rescaled numbers.
+
+    Returns:
+    - list of int: A list of integers rescaled from the input numbers summing to the target.
+    """
+    if not numbers:
+        return []
+
+    # Calculate the sum of the original numbers
+    total_sum = sum(numbers)
+
+    # Avoid division by zero if total_sum happens to be zero (when all elements are zero)
+    if total_sum == 0:
+        # Distribute the target value equally, as far as possible
+        n = len(numbers)
+        result = [target // n] * n
+        remainder = target % n
+        for i in range(remainder):
+            result[i] += 1
+        return result
+
+    # Calculate scale factor
+    scale_factor = target / total_sum
+
+    # Scale and round numbers
+    scaled_numbers = [x * scale_factor for x in numbers]
+    rounded_numbers = [round(x) for x in scaled_numbers]
+
+    # Calculate the rounding error
+    rounded_sum = sum(rounded_numbers)
+    error = target - rounded_sum
+
+    # If there's an error, distribute it (positive or negative error)
+    if error != 0:
+        # Sort indices of numbers by the size of their fractional parts
+        fractions = [(i, x - int(x)) for i, x in enumerate(scaled_numbers)]
+        # Correct positive or negative discrepancies
+        correction_indices = sorted(fractions, key=lambda x: -abs(x[1] - 0.5) if error < 0 else abs(x[1] - 0.5))
+
+        for i in range(abs(error)):
+            idx = correction_indices[i][0]
+            rounded_numbers[idx] += 1 if error > 0 else -1
+
+    return rounded_numbers
+
+
+def apply_mutation(original_counts, percent_change):
+    """
+    Applies a mutation to a specific position in a PSSM.
+
+    Parameters
+    ----------
+    original_counts : List[int]
+        A list of counts for the residues [A, C, G, T] at the specified position.
+
+    percent_change : float
+        The percentage by which to increase the count of the selected residue.
+
+    Returns
+    -------
+    List[int]
+        A list of the mutated counts for the residues [A, C, G, T] at the specified position.
+    """
+    total_counts = sum(original_counts)
+    mutated_counts = original_counts.copy()
+
+    # Select a residue to mutate
+    residue_index = random.randint(0, 3)
+    change_amount = min(round(total_counts * (percent_change / 100)), total_counts - mutated_counts[residue_index])
+    mutated_counts[residue_index] += change_amount
+
+    # Adjust other residues proportionally
+    for i in range(4):
+        if i != residue_index:
+            adj = math.ceil(original_counts[i] * (change_amount / (total_counts - original_counts[residue_index])))
+            mutated_counts[i] -= adj
+
+    # Ensure no counts fall below zero (compensate from others if necessary)
+    for i in range(4):
+        if mutated_counts[i] < 0:
+            diff = -mutated_counts[i]
+            mutated_counts[i] = 0
+            # Distribute the difference proportionally to the others
+            for j in range(4):
+                if j != i and mutated_counts[j] > 0:
+                    mutated_counts[j] += round(
+                        diff * (original_counts[j] / sum([original_counts[k] for k in range(4) if k != i])))
+
+    if sum(mutated_counts) != total_counts:
+        mutated_counts = rescale_to_target(mutated_counts, total_counts)
+
+    return mutated_counts
+
+
+def mutate_pssm(matrix, gen_nb=1, n_desc=None, min_percent=5, max_percent=10):
+    """
+    Generates a set of mutated position-specific scoring matrices (PSSMs) from an input matrix by randomly mutating one
+    position per descendant matrix.
+
+    Parameters
+    ----------
+    matrix : Dict[str, Union[Dict[str, str], pl.DataFrame]]
+        The input PSSM, structured as a dictionary containing 'metadata' and 'matrix' (a Polars DataFrame).
+
+    gen_nb : int, optional
+        The generation number to track the iteration of mutations. Default is 1.
+
+    n_desc : int, optional
+        The number of descendant matrices to generate. If not specified, it defaults to the number of positions in the
+        matrix.
+
+    min_percent : float, optional
+        The minimum percentage change for mutations. Default is 5%.
+
+    max_percent : float, optional
+        The maximum percentage change for mutations. Default is 10%.
+
+    Returns
+    -------
+    List[Dict[str, Union[Dict[str, str], pl.DataFrame]]]
+        A list of mutated PSSMs, each structured as a dictionary containing 'metadata' and 'matrix'.
+    """
+    height = matrix['matrix'].height
+    if n_desc is None:
+        n_desc = height  # Default to number of positions
+
+    original_ac = matrix['metadata']['AC']
+    # Remove any existing _G#_D# suffix
+    original_ac = re.sub(r'_G\d+_D\d+$', '', original_ac)
+
+    mutated_matrices = []
+
+    for desc_num in range(1, n_desc + 1):
+        # Clone the original matrix for each descendant
+        mutated_matrix_df = matrix['matrix'].clone()
+
+        # Randomly select one position to mutate
+        random_position_index = random.randint(0, height - 1)
+        original_counts = list(mutated_matrix_df.row(random_position_index))[1:]
+
+        percent_change = random.uniform(min_percent, max_percent)
+        # Apply mutation using the apply_mutation function
+        mutated_counts = apply_mutation(original_counts, percent_change)
+
+        # Update the row with mutated counts
+        mutated_row = [random_position_index + 1] + mutated_counts
+        for index, item in enumerate(mutated_row):
+            mutated_matrix_df[random_position_index, index] = item
+
+        # Update metadata
+        mutated_metadata = matrix['metadata'].copy()
+        mutated_metadata['AC'] = f"{original_ac}_G{gen_nb}_D{desc_num}"
+        mutated_metadata['CC'] = [
+            f"AC of original matrix: {original_ac}",
+            f"Generation number: {gen_nb}",
+            f"Mutated position {random_position_index + 1}, percent change {percent_change:.2f}%"
+        ]
+
+        mutated_matrices.append({
+            'metadata': mutated_metadata,
+            'matrix': mutated_matrix_df
+        })
+
+    return mutated_matrices
+
+
+def main():
     matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
     parsed_matrices = parse_transfac(matrix_file)
-    for matrix in parsed_matrices:
-        print("Metadata:", matrix['metadata'])
-        print("Matrix DataFrame:", matrix['matrix'])
+    # for matrix in parsed_matrices:
+    #     print("Metadata:", matrix['metadata'])
+    #     print("Matrix DataFrame:", matrix['matrix'])
 
-    export_pssms(parsed_matrices, "exported_pssms.txt")
+    # export_pssms(parsed_matrices, "exported_pssms.txt")
+
+    test_matrix = parsed_matrices[1]
+    mutated_matrices = mutate_pssm(test_matrix)
+    export_pssms(mutated_matrices, 'exported_pssms.tf')
+
+
+if __name__ == '__main__':
+    main()
