@@ -1,9 +1,8 @@
+import csv
 import math
 import random
 import re
-import csv
 
-import numpy as np
 import polars as pl
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
 
@@ -363,7 +362,7 @@ def compute_stats(pos_file, neg_file, score_col='weight', group_col='ft_name', s
         # Compute True Positives (TP) as the cumulative sum of label==1
         df = df.with_columns(pl.cum_sum('label').alias("TP"))
 
-        ## Compute False Positives (FP) as the cumulative sum of label==0
+        # Compute False Positives (FP) as the cumulative sum of label==0
         df = df.with_columns((1 - pl.col('label')).cum_sum().alias("FP"))
 
         # Compute False Negative (FN) as the number of positives not yet counted
@@ -386,7 +385,8 @@ def compute_stats(pos_file, neg_file, score_col='weight', group_col='ft_name', s
         # Add a column "new_value" indicating whether the score is higher in the current row than in the previous one
         df = df.with_columns(
             (
-                (df[score_col] < df[score_col].shift(1))  # Check if current "weight" is greater than previous row's "weight"
+                # Check if current "weight" is greater than previous row's "weight"
+                (pl.col(score_col) < pl.col(score_col).shift(1))
                 .fill_null(True)  # Fill the first row's None with True
                 .cast(pl.Int8)  # Cast the boolean result to integer (0 or 1)
                 .alias("new_value")  # Name the column "new_value"
@@ -396,40 +396,40 @@ def compute_stats(pos_file, neg_file, score_col='weight', group_col='ft_name', s
         # Compute cumulative AuROC
         df_new_score = df.filter(pl.col("new_value") == 1)
         df_new_score = df_new_score.with_columns(
-            ((df_new_score["FPR"] - df_new_score["FPR"].shift(1) ) * (df_new_score["TPR"] + df_new_score["TPR"].shift(1))/2)
+            ((df_new_score["FPR"] - df_new_score["FPR"].shift(1)) * (
+                    df_new_score["TPR"] + df_new_score["TPR"].shift(1)) / 2)
             .fill_null(0)  # Fill the first row's None with 0
             .cum_sum()
             .alias("AuROC_cum")
         )
-        AuROC = df_new_score["AuROC_cum"].tail(1).to_list()[0]
+        au_roc = df_new_score["AuROC_cum"].tail(1).to_list()[0]
 
         # Compute cumulative AuPR
         df_new_score = df.filter(pl.col("new_value") == 1)
         df_new_score = df_new_score.with_columns(
-            ((df_new_score["TPR"] - df_new_score["TPR"].shift(1) ) * (df_new_score["PPV"] + df_new_score["PPV"].shift(1))/2)
+            ((df_new_score["TPR"] - df_new_score["TPR"].shift(1)) * (
+                    df_new_score["PPV"] + df_new_score["PPV"].shift(1)) / 2)
             .fill_null(0)  # Fill the first row's None with 0
             .cum_sum()
             .alias("AuPR_cum")
         )
 
-        AuPR = df_new_score["AuPR_cum"].tail(1).to_list()[0]
-
+        au_pr = df_new_score["AuPR_cum"].tail(1).to_list()[0]
 
         scores, labels = df[score_col].to_numpy(), df["label"].to_numpy()
 
         # Compute ROC and AUC
         fpr, tpr, _ = roc_curve(labels, scores)
         roc_auc = auc(fpr, tpr)
-        #
+
         # Compute Precision-Recall and AUC
         precision, recall, _ = precision_recall_curve(labels, scores)
         pr_auc = average_precision_score(labels, scores)
 
         return {
-            # "group": df_new_score[group_col].unique(),
-            "AuROC": AuROC,
-            "AuPR": AuPR,
+            "AuROC": au_roc,
             "roc_auc": roc_auc,
+            "AuPR": au_pr,
             "pr_auc": pr_auc,
             "stat_per_score": df_new_score
         }
@@ -437,10 +437,9 @@ def compute_stats(pos_file, neg_file, score_col='weight', group_col='ft_name', s
     # Process each group separately
     results = {}
     for group_value in data[group_col].unique():
-        group_df = data.filter(pl.col(group_col) == group_value) # Select the rows corresponding to current group_value
-        group_stats = compute_group_stats(group_df) # Compute performance stats on this group
-        results[group_value] = group_stats # Aggregate the results in a dictionary
-
+        group_df = data.filter(pl.col(group_col) == group_value)  # Select the rows corresponding to current group_value
+        group_stats = compute_group_stats(group_df)  # Compute performance stats on this group
+        results[group_value] = group_stats  # Aggregate the results in a dictionary
 
     return results
 
@@ -475,13 +474,13 @@ def main():
 
         # Write the data
         for key, values in stats_per_motif_sorted:
-             writer.writerow([
+            writer.writerow([
                 key,
                 f"{values['AuROC']:.4f}",
                 f"{values['roc_auc']:.4f}",
                 f"{values['AuPR']:.4f}",
                 f"{values['pr_auc']:.4f}"
-             ])
+            ])
 
 
 if __name__ == '__main__':
