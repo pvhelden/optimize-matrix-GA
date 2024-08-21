@@ -1,0 +1,13 @@
+key	AuROC	roc_auc	AuPR	pr_auc
+cluster_1_node_5_5motifs	0.9659	0.9657	0.9660	0.9653
+cluster_1_node_3_2motifs	0.9649	0.9647	0.9645	0.9639
+cluster_1_node_2_3motifs	0.9629	0.9626	0.9632	0.9625
+cluster_1_node_8_9motifs	0.9614	0.9611	0.9614	0.9606
+cluster_1_node_7_8motifs	0.9604	0.9601	0.9607	0.9598
+cluster_1	0.9588	0.9586	0.9562	0.9555
+cluster_3	0.9581	0.9579	0.9536	0.9534
+cluster_1_node_1_2motifs	0.9580	0.9577	0.9591	0.9583
+cluster_3_node_1_2motifs	0.9565	0.9563	0.9513	0.9511
+cluster_1_node_6_3motifs	0.9275	0.9272	0.9296	0.9281
+cluster_1_node_4_2motifs	0.9031	0.9027	0.9077	0.9056
+cluster_2	0.5918	0.5914	0.6282	0.6257
