@@ -61,7 +61,7 @@ def parse_transfac(file_path):
             # Check for the beginning of a new matrix (AC or ID indicates a new matrix)
             if line.startswith('AC'):
                 if in_matrix:  # If we're in the middle of a matrix, store the last one
-                    matrix_df = pl.DataFrame(matrix_data, schema=['Position', 'A', 'C', 'G', 'T'])
+                    matrix_df = pl.DataFrame(matrix_data, schema=['Position', 'A', 'C', 'G', 'T'], orient="row")
                     matrices.append({'metadata': current_metadata, 'matrix': matrix_df})
                     matrix_data = []
                 current_metadata = {'AC': line.split('  ')[-1]}
@@ -88,7 +88,7 @@ def parse_transfac(file_path):
 
         # If the file doesn't end with '//' but there's an ongoing matrix, save it
         if matrix_data:
-            matrix_df = pl.DataFrame(matrix_data, schema=['Position', 'A', 'C', 'G', 'T'])
+            matrix_df = pl.DataFrame(matrix_data, schema=['Position', 'A', 'C', 'G', 'T'], orient="row")
             matrices.append({'metadata': current_metadata, 'matrix': matrix_df})
 
     return matrices
@@ -232,25 +232,28 @@ def apply_mutation(original_counts, percent_change):
 
     # Select a residue to mutate
     residue_index = random.randint(0, 3)
-    change_amount = min(round(total_counts * (percent_change / 100)), total_counts - mutated_counts[residue_index])
-    mutated_counts[residue_index] += change_amount
+    # residue_index = 3 # JvH tmp
+    change_amount = min(round(total_counts * (percent_change / 100)), total_counts - original_counts[residue_index])
 
-    # Adjust other residues proportionally
-    for i in range(4):
-        if i != residue_index:
-            adj = math.ceil(original_counts[i] * (change_amount / (total_counts - original_counts[residue_index])))
-            mutated_counts[i] -= adj
+    if change_amount > 0:
+        mutated_counts[residue_index] += change_amount
 
-    # Ensure no counts fall below zero (compensate from others if necessary)
-    for i in range(4):
-        if mutated_counts[i] < 0:
-            diff = -mutated_counts[i]
-            mutated_counts[i] = 0
-            # Distribute the difference proportionally to the others
-            for j in range(4):
-                if j != i and mutated_counts[j] > 0:
-                    mutated_counts[j] += round(
-                        diff * (original_counts[j] / sum([original_counts[k] for k in range(4) if k != i])))
+        # Adjust other residues proportionally
+        for i in range(4):
+            if i != residue_index:
+                adj = math.ceil(original_counts[i] * (change_amount / (total_counts - original_counts[residue_index])))
+                mutated_counts[i] -= adj
+
+        # Ensure no counts fall below zero (compensate from others if necessary)
+        for i in range(4):
+            if mutated_counts[i] < 0:
+                diff = -mutated_counts[i]
+                mutated_counts[i] = 0
+                # Distribute the difference proportionally to the others
+                for j in range(4):
+                    if j != i and mutated_counts[j] > 0:
+                        mutated_counts[j] += round(
+                            diff * (original_counts[j] / sum([original_counts[k] for k in range(4) if k != i])))
 
     if sum(mutated_counts) != total_counts:
         mutated_counts = rescale_to_target(mutated_counts, total_counts)
@@ -302,9 +305,11 @@ def mutate_pssm(matrix, gen_nb=1, n_desc=None, min_percent=5, max_percent=10):
 
         # Randomly select one position to mutate
         random_position_index = random.randint(0, height - 1)
+        # random_position_index = 7 # JvH tmp
         original_counts = list(mutated_matrix_df.row(random_position_index))[1:]
 
         percent_change = random.uniform(min_percent, max_percent)
+        # percent_change = 10 # JvH tmp
         # Apply mutation using the apply_mutation function
         mutated_counts = apply_mutation(original_counts, percent_change)
 
@@ -446,6 +451,8 @@ def compute_stats(pos_file, neg_file, score_col='weight', group_col='ft_name', s
 
 def main():
     matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
+    # matrix_file = 'data/matrices/test_matrix_1.tf'
+
     parsed_matrices = parse_transfac(matrix_file)
     # for matrix in parsed_matrices:
     #     print("Metadata:", matrix['metadata'])
@@ -453,10 +460,35 @@ def main():
 
     # export_pssms(parsed_matrices, "exported_pssms.txt")
 
-    test_matrix = parsed_matrices[1]
-    mutated_matrices = mutate_pssm(test_matrix)
-    export_pssms(mutated_matrices, 'exported_pssms.tf')
+    # matrix = parsed_matrices[1] ## for debugging and testing
+    collected_matrices = parsed_matrices
+    parent_matrices = parsed_matrices
+    nb_generations = 3
+    # iterate over generations
+    for i in range(nb_generations):
+        gen_nb = i + 1
+        children_matrices = []
+        print("Generation: " + str(gen_nb))
+        print("\tparent matrices: " + str(len(parent_matrices)))
+        for m in range(len(parent_matrices)):
+            matrix = parent_matrices[m]
+            # Collect mutated matrices
+            mutated_matrices = mutate_pssm(matrix, gen_nb=gen_nb)
+            children_matrices = children_matrices + mutated_matrices
+        print("\tchildren matrices: " + str(len(children_matrices)))
+        collected_matrices = collected_matrices + children_matrices
+        print("\tcollected matrices: " + str(len(collected_matrices)))
 
+        parent_matrices = children_matrices
+
+        # Export collected matrices
+        outfile = "collected_matrices_gen" + str(gen_nb) + ".tf"
+        print("\tExporting collected matrices to file\t" + outfile)
+        export_pssms(collected_matrices, outfile)
+
+    exit(0)
+
+    # Compute classification statistics per PSSM from two sequence scanning files (positive and negative data sets)
     stats_per_motif = compute_stats('data/scans/CHS_GABPA_THC_0866_peakmo-clust-matrices_train.tsv',
                                     'data/scans/CHS_GABPA_THC_0866_peakmo-clust-matrices_rand.tsv',
                                     'weight', 'ft_name')
