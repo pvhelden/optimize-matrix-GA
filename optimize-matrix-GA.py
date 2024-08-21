@@ -296,10 +296,11 @@ def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, m
     original_ac = matrix['metadata']['AC']
     # Remove any existing _G#_D# suffix
     original_ac = re.sub(r'_G\d+_M\d+_C\d+$', '', original_ac)
+    original_id = re.sub(r'_G\d+_M\d+_C\d+$', '', matrix['metadata']['ID'])
 
     mutated_matrices = []
 
-    for child_num in range(1, n_children + 1):
+    for child_nb in range(1, n_children + 1):
         # Clone the original matrix for each child
         mutated_matrix_df = matrix['matrix'].clone()
 
@@ -318,10 +319,14 @@ def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, m
 
         # Update metadata
         mutated_metadata = matrix['metadata'].copy()
-        mutated_metadata['AC'] = f"{original_ac}_G{gen_nb}_M{matrix_nb}_C{child_num}"
+        mutated_metadata['AC'] = f"{original_ac}_G{gen_nb}_M{matrix_nb}_C{child_nb}"
+        mutated_metadata['ID'] = f"{original_id}_G{gen_nb}_M{matrix_nb}_C{child_nb}"
         mutated_metadata['CC'] = [
             f"AC of original matrix: {original_ac}",
+            f"ID of original matrix: {original_id}",
             f"Generation number: {gen_nb}",
+            f"Matrix number: {matrix_nb}",
+            f"Child number: {child_nb}",
             f"Mutated position {random_position_index + 1}, percent change {percent_change:.2f}%"
         ]
 
