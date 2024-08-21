@@ -3,6 +3,7 @@ import random
 import re
 
 import polars as pl
+from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
 
 
 def parse_transfac(file_path):
@@ -328,6 +329,75 @@ def mutate_pssm(matrix, gen_nb=1, n_desc=None, min_percent=5, max_percent=10):
     return mutated_matrices
 
 
+def compute_stats(pos_file, neg_file, score_col, group_col, score_threshold=-100):
+    # Function to read and preprocess the data
+    def read_data(file, label):
+        return pl.read_csv(
+            file,
+            comment_char=';',
+            has_header=True
+        ).select([
+            pl.col(score_col),
+            pl.col(group_col),
+            pl.lit(label).alias('label')
+        ]).filter(pl.col(score_col) >= score_threshold)  # Filter out rows with score < -100
+
+    # Load positive and negative datasets with labels
+    pos_data = read_data(pos_file, 1)
+    neg_data = read_data(neg_file, 0)
+
+    # Combine data from positive and negative datasets
+    data = pos_data.vstack(neg_data)
+
+    # Get unique groups
+    groups = data.select(group_col).unique().to_series().to_list()
+
+    # Function to compute stats per group
+    def compute_group_stats(df):
+        # Sort by score in descending order
+        df = df.sort(score_col, reverse=True)
+        scores, labels = df[score_col].to_numpy(), df["label"].to_numpy()
+
+        # Compute ROC and AUC
+        fpr, tpr, _ = roc_curve(labels, scores)
+        roc_auc = auc(fpr, tpr)
+
+        # Compute Precision-Recall and AUC
+        precision, recall, _ = precision_recall_curve(labels, scores)
+        pr_auc = average_precision_score(labels, scores)
+
+        # Return a DataFrame with metrics
+        num_positive = labels.sum()
+        num_negative = len(labels) - num_positive
+        return pl.DataFrame({
+            "FP": (fpr * num_negative).round().cast(int),
+            "TP": (tpr * num_positive).round().cast(int),
+            "TN": ((1 - fpr) * num_negative).round().cast(int),
+            "FN": ((1 - tpr) * num_positive).round().cast(int),
+            "Sn": tpr,
+            "PPV": precision,
+            "FPR": fpr,
+            "TPR": tpr,
+            "AuROC": [roc_auc] * len(fpr),
+            "AuPR": [pr_auc] * len(precision)
+        })
+
+    # Process each group separately
+    results = []
+    for group_value in groups:
+        group_df = data.filter(pl.col(group_col) == group_value)
+        group_stats = compute_group_stats(group_df)
+        group_stats = group_stats.with_column(pl.lit(group_value).alias(group_col))
+        results.append(group_stats)
+
+    # Concatenate all results
+    if results:
+        result_df = pl.concat(results)
+    else:
+        result_df = pl.DataFrame()
+
+    return result_df
+
 def main():
     matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
     parsed_matrices = parse_transfac(matrix_file)
@@ -340,6 +410,10 @@ def main():
     test_matrix = parsed_matrices[1]
     mutated_matrices = mutate_pssm(test_matrix)
     export_pssms(mutated_matrices, 'exported_pssms.tf')
+
+    print(compute_stats('data/scans/CHS_GABPA_THC_0866_peakmo-clust-matrices_train.tsv',
+                        'data/scans/CHS_GABPA_THC_0866_peakmo-clust-matrices_rand.tsv',
+                        'weight', 'ft_name'))
 
 
 if __name__ == '__main__':
