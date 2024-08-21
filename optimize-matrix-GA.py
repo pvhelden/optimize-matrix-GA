@@ -261,10 +261,10 @@ def apply_mutation(original_counts, percent_change):
     return mutated_counts
 
 
-def mutate_pssm(matrix, gen_nb=1, n_desc=None, min_percent=5, max_percent=10):
+def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, max_percent=10):
     """
-    Generates a set of mutated position-specific scoring matrices (PSSMs) from an input matrix by randomly mutating one
-    position per descendant matrix.
+    Generates a set of mutated position-specific scoring matrices (PSSMs) from a parent matrix by randomly mutating one
+    position per child matrix.
 
     Parameters
     ----------
@@ -274,8 +274,8 @@ def mutate_pssm(matrix, gen_nb=1, n_desc=None, min_percent=5, max_percent=10):
     gen_nb : int, optional
         The generation number to track the iteration of mutations. Default is 1.
 
-    n_desc : int, optional
-        The number of descendant matrices to generate. If not specified, it defaults to the number of positions in the
+    n_children : int, optional
+        The number of children matrices to generate. If not specified, it defaults to the number of positions in the
         matrix.
 
     min_percent : float, optional
@@ -290,26 +290,24 @@ def mutate_pssm(matrix, gen_nb=1, n_desc=None, min_percent=5, max_percent=10):
         A list of mutated PSSMs, each structured as a dictionary containing 'metadata' and 'matrix'.
     """
     height = matrix['matrix'].height
-    if n_desc is None:
-        n_desc = height  # Default to number of positions
+    if n_children is None:
+        n_children = height  # Default to number of positions
 
     original_ac = matrix['metadata']['AC']
     # Remove any existing _G#_D# suffix
-    original_ac = re.sub(r'_G\d+_D\d+$', '', original_ac)
+    original_ac = re.sub(r'_G\d+_M\d+_C\d+$', '', original_ac)
 
     mutated_matrices = []
 
-    for desc_num in range(1, n_desc + 1):
-        # Clone the original matrix for each descendant
+    for child_num in range(1, n_children + 1):
+        # Clone the original matrix for each child
         mutated_matrix_df = matrix['matrix'].clone()
 
         # Randomly select one position to mutate
         random_position_index = random.randint(0, height - 1)
-        # random_position_index = 7 # JvH tmp
         original_counts = list(mutated_matrix_df.row(random_position_index))[1:]
 
         percent_change = random.uniform(min_percent, max_percent)
-        # percent_change = 10 # JvH tmp
         # Apply mutation using the apply_mutation function
         mutated_counts = apply_mutation(original_counts, percent_change)
 
@@ -320,7 +318,7 @@ def mutate_pssm(matrix, gen_nb=1, n_desc=None, min_percent=5, max_percent=10):
 
         # Update metadata
         mutated_metadata = matrix['metadata'].copy()
-        mutated_metadata['AC'] = f"{original_ac}_G{gen_nb}_D{desc_num}"
+        mutated_metadata['AC'] = f"{original_ac}_G{gen_nb}_M{matrix_nb}_C{child_num}"
         mutated_metadata['CC'] = [
             f"AC of original matrix: {original_ac}",
             f"Generation number: {gen_nb}",
@@ -465,15 +463,15 @@ def main():
     parent_matrices = parsed_matrices
     nb_generations = 3
     # iterate over generations
-    for i in range(nb_generations):
-        gen_nb = i + 1
+    for g in range(nb_generations):
+        gen_nb = g + 1
         children_matrices = []
         print("Generation: " + str(gen_nb))
         print("\tparent matrices: " + str(len(parent_matrices)))
         for m in range(len(parent_matrices)):
             matrix = parent_matrices[m]
             # Collect mutated matrices
-            mutated_matrices = mutate_pssm(matrix, gen_nb=gen_nb)
+            mutated_matrices = mutate_pssm(matrix, gen_nb=gen_nb, matrix_nb=m+1)
             children_matrices = children_matrices + mutated_matrices
         print("\tchildren matrices: " + str(len(children_matrices)))
         collected_matrices = collected_matrices + children_matrices
