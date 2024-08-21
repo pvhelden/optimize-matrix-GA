@@ -1,8 +1,10 @@
+import csv
 import math
 import random
 import re
 
 import polars as pl
+from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
 
 
 def parse_transfac(file_path):
@@ -328,6 +330,120 @@ def mutate_pssm(matrix, gen_nb=1, n_desc=None, min_percent=5, max_percent=10):
     return mutated_matrices
 
 
+def compute_stats(pos_file, neg_file, score_col='weight', group_col='ft_name', score_threshold=-100):
+    # Read and preprocess the data
+    def read_data(file, label):
+        return pl.read_csv(
+            file,
+            comment_prefix=';',
+            has_header=True,
+            separator='\t',
+        ).select([
+            pl.col(score_col),
+            pl.col(group_col),
+            pl.lit(label).alias('label'),
+        ]).filter(pl.col(score_col) >= score_threshold)
+
+    # Load positive and negative datasets with labels
+    pos_data = read_data(pos_file, 1)
+    neg_data = read_data(neg_file, 0)
+    data = pos_data.vstack(neg_data)
+
+    # Function to compute stats per group
+    def compute_group_stats(df):
+        # Sort by score in descending order
+        df = df.sort(score_col, descending=True)
+
+        # Add a row number column as rank
+        df = df.with_columns(
+            pl.arange(1, df.height + 1).alias("rank")
+        )
+
+        # Compute True Positives (TP) as the cumulative sum of label==1
+        df = df.with_columns(pl.cum_sum('label').alias("TP"))
+
+        # Compute False Positives (FP) as the cumulative sum of label==0
+        df = df.with_columns((1 - pl.col('label')).cum_sum().alias("FP"))
+
+        # Compute False Negative (FN) as the number of positives not yet counted
+        pos_total = df["TP"].tail(1).to_list()[0]
+        df = df.with_columns((pos_total - pl.col('TP')).alias("FN"))
+
+        # Compute True Negative (TN) as the number of negatives not yet counted
+        neg_total = df["FP"].tail(1).to_list()[0]
+        df = df.with_columns((neg_total - pl.col('FP')).alias("TN"))
+
+        # Compute True Positive Rate (recall, sensitivity)
+        df = df.with_columns((pl.col("TP") / pos_total).alias("TPR"))
+
+        # Compute False Positive Rate
+        df = df.with_columns((pl.col("FP") / neg_total).alias("FPR"))
+
+        # Compute Predictive positive Value (precision)
+        df = df.with_columns((pl.col("TP") / (pl.col("TP") + pl.col("FP"))).alias("PPV"))
+
+        # Add a column "new_value" indicating whether the score is higher in the current row than in the previous one
+        df = df.with_columns(
+            (
+                # Check if current "weight" is greater than previous row's "weight"
+                (pl.col(score_col) < pl.col(score_col).shift(1))
+                .fill_null(True)  # Fill the first row's None with True
+                .cast(pl.Int8)  # Cast the boolean result to integer (0 or 1)
+                .alias("new_value")  # Name the column "new_value"
+            )
+        )
+
+        # Compute cumulative AuROC
+        df_new_score = df.filter(pl.col("new_value") == 1)
+        df_new_score = df_new_score.with_columns(
+            ((df_new_score["FPR"] - df_new_score["FPR"].shift(1)) * (
+                    df_new_score["TPR"] + df_new_score["TPR"].shift(1)) / 2)
+            .fill_null(0)  # Fill the first row's None with 0
+            .cum_sum()
+            .alias("AuROC_cum")
+        )
+        au_roc = df_new_score["AuROC_cum"].tail(1).to_list()[0]
+
+        # Compute cumulative AuPR
+        df_new_score = df.filter(pl.col("new_value") == 1)
+        df_new_score = df_new_score.with_columns(
+            ((df_new_score["TPR"] - df_new_score["TPR"].shift(1)) * (
+                    df_new_score["PPV"] + df_new_score["PPV"].shift(1)) / 2)
+            .fill_null(0)  # Fill the first row's None with 0
+            .cum_sum()
+            .alias("AuPR_cum")
+        )
+
+        au_pr = df_new_score["AuPR_cum"].tail(1).to_list()[0]
+
+        scores, labels = df[score_col].to_numpy(), df["label"].to_numpy()
+
+        # Compute ROC and AUC
+        fpr, tpr, _ = roc_curve(labels, scores)
+        roc_auc = auc(fpr, tpr)
+
+        # Compute Precision-Recall and AUC
+        precision, recall, _ = precision_recall_curve(labels, scores)
+        pr_auc = average_precision_score(labels, scores)
+
+        return {
+            "AuROC": au_roc,
+            "roc_auc": roc_auc,
+            "AuPR": au_pr,
+            "pr_auc": pr_auc,
+            "stat_per_score": df_new_score
+        }
+
+    # Process each group separately
+    results = {}
+    for group_value in data[group_col].unique():
+        group_df = data.filter(pl.col(group_col) == group_value)  # Select the rows corresponding to current group_value
+        group_stats = compute_group_stats(group_df)  # Compute performance stats on this group
+        results[group_value] = group_stats  # Aggregate the results in a dictionary
+
+    return results
+
+
 def main():
     matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
     parsed_matrices = parse_transfac(matrix_file)
@@ -340,6 +456,31 @@ def main():
     test_matrix = parsed_matrices[1]
     mutated_matrices = mutate_pssm(test_matrix)
     export_pssms(mutated_matrices, 'exported_pssms.tf')
+
+    stats_per_motif = compute_stats('data/scans/CHS_GABPA_THC_0866_peakmo-clust-matrices_train.tsv',
+                                    'data/scans/CHS_GABPA_THC_0866_peakmo-clust-matrices_rand.tsv',
+                                    'weight', 'ft_name')
+    print(stats_per_motif)
+
+    # Convert the dictionary to a list of tuples and sort by AuROC in decreasing order
+    stats_per_motif_sorted = sorted(stats_per_motif.items(), key=lambda x: x[1]['AuROC'], reverse=True)
+
+    # Open the file in write mode
+    with open("stats_per_motif.tsv", mode='w', newline='') as file:
+        writer = csv.writer(file, delimiter='\t')
+
+        # Write the header
+        writer.writerow(["key", "AuROC", "roc_auc", "AuPR", "pr_auc"])
+
+        # Write the data
+        for key, values in stats_per_motif_sorted:
+            writer.writerow([
+                key,
+                f"{values['AuROC']:.4f}",
+                f"{values['roc_auc']:.4f}",
+                f"{values['AuPR']:.4f}",
+                f"{values['pr_auc']:.4f}"
+            ])
 
 
 if __name__ == '__main__':
