@@ -64,8 +64,7 @@ def parse_transfac(file_path):
                     matrix_df = pl.DataFrame(matrix_data, schema=['Position', 'A', 'C', 'G', 'T'], orient="row")
                     matrices.append({'metadata': current_metadata, 'matrix': matrix_df})
                     matrix_data = []
-                current_metadata = {'AC': line.split('  ')[-1]}
-                current_metadata['CC'] = []
+                current_metadata = {'AC': line.split('  ')[-1], 'CC': []}
                 in_matrix = False
             elif line.startswith('ID'):
                 current_metadata['ID'] = line.split('  ')[-1]
@@ -216,7 +215,7 @@ def rescale_to_target(numbers, target):
     return rounded_numbers
 
 
-def apply_mutation(original_counts, percent_change):
+def apply_mutation(original_counts: list[int], residue_index: int, percent_change: float):
     """
     Applies a mutation to a specific position in a PSSM.
 
@@ -224,6 +223,9 @@ def apply_mutation(original_counts, percent_change):
     ----------
     original_counts : List[int]
         A list of counts for the residues [A, C, G, T] at the specified position.
+
+    residue_index : int
+        The index of the residue to be mutated in the PSSM column.
 
     percent_change : float
         The percentage by which to increase the count of the selected residue.
@@ -236,9 +238,6 @@ def apply_mutation(original_counts, percent_change):
     total_counts = sum(original_counts)
     mutated_counts = original_counts.copy()
 
-    # Select a residue to mutate
-    residue_index = random.randint(0, 3)
-    # residue_index = 3 # JvH tmp
     change_amount = min(round(total_counts * (percent_change / 100)), total_counts - original_counts[residue_index])
 
     if change_amount > 0:
@@ -268,7 +267,7 @@ def apply_mutation(original_counts, percent_change):
     return mutated_counts
 
 
-def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, max_percent=10):
+def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, max_percent=25):
     """
     Generates a set of mutated position-specific scoring matrices (PSSMs) from a parent matrix by randomly mutating one
     position per child matrix.
@@ -280,6 +279,9 @@ def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, m
 
     gen_nb : int, optional
         The generation number to track the iteration of mutations. Default is 1.
+
+    matrix_nb : int, optional
+        Number of the matrix (in this generation) to track the iteration of mutations. Default is 1.
 
     n_children : int, optional
         The number of children matrices to generate. If not specified, it defaults to the number of positions in the
@@ -318,9 +320,15 @@ def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, m
         mutated_position_index = random.randint(0, height - 1)
         original_counts = list(mutated_matrix_df.row(mutated_position_index))[1:]
 
+        # Select a residue to mutate
+        residue_index = random.randint(0, 3)
+        # residue_index = 3 # JvH tmp
+
+        # Select percent change randomly
         percent_change = random.uniform(min_percent, max_percent)
+
         # Apply mutation using the apply_mutation function
-        mutated_counts = apply_mutation(original_counts, percent_change)
+        mutated_counts = apply_mutation(original_counts, residue_index, percent_change)
 
         # Update the row with mutated counts
         mutated_row = [mutated_position_index + 1] + mutated_counts
@@ -337,7 +345,9 @@ def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, m
             f"  AC of parent matrix: {parent_ac}",
             f"  ID of parent matrix: {parent_id}",
             f"  Child number: {child_nb}",
-            f"  Mutated position {mutated_position_index + 1}, percent change {percent_change:.2f}%"
+            f"  Mutated position {mutated_position_index + 1}, " +
+            f"residue number {residue_index + 1}, " +
+            f"percent change {percent_change:.2f}%",
         ]
 
         mutated_matrices.append({
@@ -463,20 +473,28 @@ def compute_stats(pos_file, neg_file, score_col='weight', group_col='ft_name', s
 
 
 def main():
-    matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
-    # matrix_file = 'data/matrices/test_matrix_1.tf'
+    # ------------------------------------------------
+    # Parameters
+    # ------------------------------------------------
+    min_percent = 5  # min percent change at each mutation
+    max_percent = 30  # max percent change at each mutation
+    nb_generations = 4  # number of generations
+    selection_size = 5  # number of individuals to keep from each generation
+    n_children = 10  # number fo children per parent at each generation
+    # matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
+    matrix_file = 'data/matrices/test_matrix_1.tf'
+
+    # ------------------------------------------------
+    # Load original matrices
+    # ------------------------------------------------
 
     parsed_matrices = parse_transfac(matrix_file)
-    # for matrix in parsed_matrices:
-    #     print("Metadata:", matrix['metadata'])
-    #     print("Matrix DataFrame:", matrix['matrix'])
 
-    # export_pssms(parsed_matrices, "exported_pssms.txt")
-
-    # matrix = parsed_matrices[1] ## for debugging and testing
+    # ------------------------------------------------
+    # Run the GA algorithm
+    # ------------------------------------------------
     collected_matrices = parsed_matrices
     parent_matrices = parsed_matrices
-    nb_generations = 2
     # iterate over generations
     for g in range(nb_generations):
         gen_nb = g + 1
@@ -486,7 +504,12 @@ def main():
         for m in range(len(parent_matrices)):
             matrix = parent_matrices[m]
             # Collect mutated matrices
-            mutated_matrices = mutate_pssm(matrix, gen_nb=gen_nb, matrix_nb=m+1, min_percent=-20, max_percent=20)
+            mutated_matrices = mutate_pssm(matrix,
+                                           gen_nb=gen_nb,
+                                           matrix_nb=m + 1,
+                                           n_children=n_children,
+                                           min_percent=min_percent,
+                                           max_percent=max_percent)
             children_matrices = children_matrices + mutated_matrices
         print("\tchildren matrices: " + str(len(children_matrices)))
         collected_matrices = collected_matrices + children_matrices
@@ -494,20 +517,26 @@ def main():
 
         parent_matrices = children_matrices
 
-        # Export collected matrices
+        # ------------------------------------------------
+        # Export matrices collected at each generation
+        # ------------------------------------------------
         outfile = "collected_matrices_gen" + str(gen_nb) + ".tf"
         print("\tExporting collected matrices to file\t" + outfile)
         export_pssms(collected_matrices, outfile)
 
-    exit(0)
+    return
 
+    # ------------------------------------------------
     # Compute classification statistics per PSSM from two sequence scanning files (positive and negative data sets)
+    # ------------------------------------------------
     stats_per_motif = compute_stats('data/scans/CHS_GABPA_THC_0866_peakmo-clust-matrices_train.tsv',
                                     'data/scans/CHS_GABPA_THC_0866_peakmo-clust-matrices_rand.tsv',
                                     'weight', 'ft_name')
     print(stats_per_motif)
 
+    # ------------------------------------------------
     # Convert the dictionary to a list of tuples and sort by AuROC in decreasing order
+    # ------------------------------------------------
     stats_per_motif_sorted = sorted(stats_per_motif.items(), key=lambda x: x[1]['AuROC'], reverse=True)
 
     # Open the file in write mode
