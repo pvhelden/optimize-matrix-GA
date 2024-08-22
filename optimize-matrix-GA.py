@@ -61,15 +61,19 @@ def parse_transfac(file_path):
             # Check for the beginning of a new matrix (AC or ID indicates a new matrix)
             if line.startswith('AC'):
                 if in_matrix:  # If we're in the middle of a matrix, store the last one
-                    matrix_df = pl.DataFrame(matrix_data, schema=['Position', 'A', 'C', 'G', 'T'])
+                    matrix_df = pl.DataFrame(matrix_data, schema=['Position', 'A', 'C', 'G', 'T'], orient="row")
                     matrices.append({'metadata': current_metadata, 'matrix': matrix_df})
                     matrix_data = []
                 current_metadata = {'AC': line.split('  ')[-1]}
+                current_metadata['CC'] = []
                 in_matrix = False
             elif line.startswith('ID'):
                 current_metadata['ID'] = line.split('  ')[-1]
             elif line.startswith('DE'):
                 current_metadata['DE'] = line.split('  ')[-1]
+            elif line.startswith('CC'):
+                # comment lines can be multiple
+                current_metadata['CC'].append(line.split('  ')[-1])
             elif line.startswith('P0'):
                 in_matrix = True
             elif in_matrix:
@@ -88,7 +92,7 @@ def parse_transfac(file_path):
 
         # If the file doesn't end with '//' but there's an ongoing matrix, save it
         if matrix_data:
-            matrix_df = pl.DataFrame(matrix_data, schema=['Position', 'A', 'C', 'G', 'T'])
+            matrix_df = pl.DataFrame(matrix_data, schema=['Position', 'A', 'C', 'G', 'T'], orient="row")
             matrices.append({'metadata': current_metadata, 'matrix': matrix_df})
 
     return matrices
@@ -153,8 +157,10 @@ def export_pssms(pssms, file_path, out_format='transfac'):
                 f.write(f"{row['Position']:<4d}  {row['A']:8d}  {row['C']:8d}  {row['G']:8d}  {row['T']:8d}\n")
 
             f.write("XX\n")
+            matrix_comments = metadata.get('CC', '')
+            for comment in matrix_comments:
+                f.write(f"CC  {comment}\n")
             f.write("//\n")
-            f.write("\n")  # Separate matrices with a blank line
 
 
 def rescale_to_target(numbers, target):
@@ -232,25 +238,29 @@ def apply_mutation(original_counts, percent_change):
 
     # Select a residue to mutate
     residue_index = random.randint(0, 3)
-    change_amount = min(round(total_counts * (percent_change / 100)), total_counts - mutated_counts[residue_index])
-    mutated_counts[residue_index] += change_amount
+    # residue_index = 3 # JvH tmp
+    change_amount = min(round(total_counts * (percent_change / 100)), total_counts - original_counts[residue_index])
 
-    # Adjust other residues proportionally
-    for i in range(4):
-        if i != residue_index:
-            adj = math.ceil(original_counts[i] * (change_amount / (total_counts - original_counts[residue_index])))
-            mutated_counts[i] -= adj
+    if change_amount > 0:
+        mutated_counts[residue_index] += change_amount
 
-    # Ensure no counts fall below zero (compensate from others if necessary)
-    for i in range(4):
-        if mutated_counts[i] < 0:
-            diff = -mutated_counts[i]
-            mutated_counts[i] = 0
-            # Distribute the difference proportionally to the others
-            for j in range(4):
-                if j != i and mutated_counts[j] > 0:
-                    mutated_counts[j] += round(
-                        diff * (original_counts[j] / sum([original_counts[k] for k in range(4) if k != i])))
+        # Adjust other residues proportionally
+        other_residue_sum = total_counts - original_counts[residue_index]
+        for i in range(4):
+            if i != residue_index:
+                adj = math.ceil(original_counts[i] * (change_amount / other_residue_sum))
+                mutated_counts[i] -= adj
+
+        # Ensure no counts fall below zero (compensate from others if necessary)
+        for i in range(4):
+            if mutated_counts[i] < 0:
+                diff = -mutated_counts[i]
+                mutated_counts[i] = 0
+                # Distribute the difference proportionally to the others
+                for j in range(4):
+                    if j != i and mutated_counts[j] > 0:
+                        mutated_counts[j] += round(
+                            diff * (original_counts[j] / sum([original_counts[k] for k in range(4) if k != i])))
 
     if sum(mutated_counts) != total_counts:
         mutated_counts = rescale_to_target(mutated_counts, total_counts)
@@ -258,10 +268,10 @@ def apply_mutation(original_counts, percent_change):
     return mutated_counts
 
 
-def mutate_pssm(matrix, gen_nb=1, n_desc=None, min_percent=5, max_percent=10):
+def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, max_percent=10):
     """
-    Generates a set of mutated position-specific scoring matrices (PSSMs) from an input matrix by randomly mutating one
-    position per descendant matrix.
+    Generates a set of mutated position-specific scoring matrices (PSSMs) from a parent matrix by randomly mutating one
+    position per child matrix.
 
     Parameters
     ----------
@@ -271,8 +281,8 @@ def mutate_pssm(matrix, gen_nb=1, n_desc=None, min_percent=5, max_percent=10):
     gen_nb : int, optional
         The generation number to track the iteration of mutations. Default is 1.
 
-    n_desc : int, optional
-        The number of descendant matrices to generate. If not specified, it defaults to the number of positions in the
+    n_children : int, optional
+        The number of children matrices to generate. If not specified, it defaults to the number of positions in the
         matrix.
 
     min_percent : float, optional
@@ -287,39 +297,47 @@ def mutate_pssm(matrix, gen_nb=1, n_desc=None, min_percent=5, max_percent=10):
         A list of mutated PSSMs, each structured as a dictionary containing 'metadata' and 'matrix'.
     """
     height = matrix['matrix'].height
-    if n_desc is None:
-        n_desc = height  # Default to number of positions
+    if n_children is None:
+        n_children = height  # Default to number of positions
 
-    original_ac = matrix['metadata']['AC']
+    parent_ac = matrix['metadata']['AC']
+    parent_id = matrix['metadata']['ID']
+    parent_cc = matrix['metadata']['CC']
+
     # Remove any existing _G#_D# suffix
-    original_ac = re.sub(r'_G\d+_D\d+$', '', original_ac)
+    ac_prefix = re.sub(r'_G\d+_M\d+_C\d+$', '', parent_ac)
+    id_prefix = re.sub(r'_G\d+_M\d+_C\d+$', '', matrix['metadata']['ID'])
 
     mutated_matrices = []
 
-    for desc_num in range(1, n_desc + 1):
-        # Clone the original matrix for each descendant
+    for child_nb in range(1, n_children + 1):
+        # Clone the original matrix for each child
         mutated_matrix_df = matrix['matrix'].clone()
 
         # Randomly select one position to mutate
-        random_position_index = random.randint(0, height - 1)
-        original_counts = list(mutated_matrix_df.row(random_position_index))[1:]
+        mutated_position_index = random.randint(0, height - 1)
+        original_counts = list(mutated_matrix_df.row(mutated_position_index))[1:]
 
         percent_change = random.uniform(min_percent, max_percent)
         # Apply mutation using the apply_mutation function
         mutated_counts = apply_mutation(original_counts, percent_change)
 
         # Update the row with mutated counts
-        mutated_row = [random_position_index + 1] + mutated_counts
+        mutated_row = [mutated_position_index + 1] + mutated_counts
         for index, item in enumerate(mutated_row):
-            mutated_matrix_df[random_position_index, index] = item
+            mutated_matrix_df[mutated_position_index, index] = item
 
         # Update metadata
         mutated_metadata = matrix['metadata'].copy()
-        mutated_metadata['AC'] = f"{original_ac}_G{gen_nb}_D{desc_num}"
-        mutated_metadata['CC'] = [
-            f"AC of original matrix: {original_ac}",
+        mutated_metadata['AC'] = f"{ac_prefix}_G{gen_nb}_M{matrix_nb}_C{child_nb}"
+        mutated_metadata['ID'] = f"{id_prefix}_G{gen_nb}_M{matrix_nb}_C{child_nb}"
+        mutated_metadata['CC'] = parent_cc + [
             f"Generation number: {gen_nb}",
-            f"Mutated position {random_position_index + 1}, percent change {percent_change:.2f}%"
+            f"  Parent matrix number: {matrix_nb}",
+            f"  AC of parent matrix: {parent_ac}",
+            f"  ID of parent matrix: {parent_id}",
+            f"  Child number: {child_nb}",
+            f"  Mutated position {mutated_position_index + 1}, percent change {percent_change:.2f}%"
         ]
 
         mutated_matrices.append({
@@ -446,6 +464,8 @@ def compute_stats(pos_file, neg_file, score_col='weight', group_col='ft_name', s
 
 def main():
     matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
+    # matrix_file = 'data/matrices/test_matrix_1.tf'
+
     parsed_matrices = parse_transfac(matrix_file)
     # for matrix in parsed_matrices:
     #     print("Metadata:", matrix['metadata'])
@@ -453,10 +473,35 @@ def main():
 
     # export_pssms(parsed_matrices, "exported_pssms.txt")
 
-    test_matrix = parsed_matrices[1]
-    mutated_matrices = mutate_pssm(test_matrix)
-    export_pssms(mutated_matrices, 'exported_pssms.tf')
+    # matrix = parsed_matrices[1] ## for debugging and testing
+    collected_matrices = parsed_matrices
+    parent_matrices = parsed_matrices
+    nb_generations = 2
+    # iterate over generations
+    for g in range(nb_generations):
+        gen_nb = g + 1
+        children_matrices = []
+        print("Generation: " + str(gen_nb))
+        print("\tparent matrices: " + str(len(parent_matrices)))
+        for m in range(len(parent_matrices)):
+            matrix = parent_matrices[m]
+            # Collect mutated matrices
+            mutated_matrices = mutate_pssm(matrix, gen_nb=gen_nb, matrix_nb=m+1, min_percent=-20, max_percent=20)
+            children_matrices = children_matrices + mutated_matrices
+        print("\tchildren matrices: " + str(len(children_matrices)))
+        collected_matrices = collected_matrices + children_matrices
+        print("\tcollected matrices: " + str(len(collected_matrices)))
 
+        parent_matrices = children_matrices
+
+        # Export collected matrices
+        outfile = "collected_matrices_gen" + str(gen_nb) + ".tf"
+        print("\tExporting collected matrices to file\t" + outfile)
+        export_pssms(collected_matrices, outfile)
+
+    exit(0)
+
+    # Compute classification statistics per PSSM from two sequence scanning files (positive and negative data sets)
     stats_per_motif = compute_stats('data/scans/CHS_GABPA_THC_0866_peakmo-clust-matrices_train.tsv',
                                     'data/scans/CHS_GABPA_THC_0866_peakmo-clust-matrices_rand.tsv',
                                     'weight', 'ft_name')
