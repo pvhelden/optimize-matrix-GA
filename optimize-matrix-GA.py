@@ -94,7 +94,6 @@ def parse_transfac(file_path):
         if matrix_data:
             matrix_df = pl.DataFrame(matrix_data, schema=['Position', 'A', 'C', 'G', 'T'], orient="row")
             matrices.append({'metadata': current_metadata, 'matrix': matrix_df})
-        # print(current_metadata['CC'])
 
     return matrices
 
@@ -162,8 +161,6 @@ def export_pssms(pssms, file_path, out_format='transfac'):
             for comment in matrix_comments:
                 f.write(f"CC  {comment}\n")
             f.write("//\n")
-
-            # f.write("\n")  # Separate matrices with a blank line
 
 
 def rescale_to_target(numbers, target):
@@ -248,9 +245,10 @@ def apply_mutation(original_counts, percent_change):
         mutated_counts[residue_index] += change_amount
 
         # Adjust other residues proportionally
+        other_residue_sum = total_counts - original_counts[residue_index]
         for i in range(4):
             if i != residue_index:
-                adj = math.ceil(original_counts[i] * (change_amount / (total_counts - original_counts[residue_index])))
+                adj = math.ceil(original_counts[i] * (change_amount / other_residue_sum))
                 mutated_counts[i] -= adj
 
         # Ensure no counts fall below zero (compensate from others if necessary)
