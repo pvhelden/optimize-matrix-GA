@@ -265,7 +265,7 @@ def apply_mutation(original_counts, residue_index, percent_change):
     return mutated_counts
 
 
-def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, max_percent=10):
+def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, max_percent=25):
     """
     Generates a set of mutated position-specific scoring matrices (PSSMs) from a parent matrix by randomly mutating one
     position per child matrix.
@@ -466,20 +466,30 @@ def compute_stats(pos_file, neg_file, score_col='weight', group_col='ft_name', s
 
 
 def main():
-    matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
-    # matrix_file = 'data/matrices/test_matrix_1.tf'
+
+    # ------------------------------------------------
+    # Parameters
+    # ------------------------------------------------
+    min_percent = 10        # min percent change at each mutation
+    max_percent = 50         # max percent change at each mutation
+    nb_generations = 2       # number of generations
+    selection_size = 5       # number of individuals to keep from each generation
+    n_children = 10           # number fo children per parent at each generation
+    # matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
+    matrix_file = 'data/matrices/test_matrix_1.tf'
+
+    # ------------------------------------------------
+    # Load original matrices
+    # ------------------------------------------------
 
     parsed_matrices = parse_transfac(matrix_file)
-    # for matrix in parsed_matrices:
-    #     print("Metadata:", matrix['metadata'])
-    #     print("Matrix DataFrame:", matrix['matrix'])
 
-    # export_pssms(parsed_matrices, "exported_pssms.txt")
-
+    # ------------------------------------------------
+    # Run the GA algorithm
+    # ------------------------------------------------
     # matrix = parsed_matrices[1] ## for debugging and testing
     collected_matrices = parsed_matrices
     parent_matrices = parsed_matrices
-    nb_generations = 2
     # iterate over generations
     for g in range(nb_generations):
         gen_nb = g + 1
@@ -489,7 +499,12 @@ def main():
         for m in range(len(parent_matrices)):
             matrix = parent_matrices[m]
             # Collect mutated matrices
-            mutated_matrices = mutate_pssm(matrix, gen_nb=gen_nb, matrix_nb=m+1, min_percent=-20, max_percent=20)
+            mutated_matrices = mutate_pssm(matrix,
+                                           gen_nb=gen_nb,
+                                           matrix_nb=m+1,
+                                           n_children=n_children,
+                                           min_percent=min_percent,
+                                           max_percent=max_percent)
             children_matrices = children_matrices + mutated_matrices
         print("\tchildren matrices: " + str(len(children_matrices)))
         collected_matrices = collected_matrices + children_matrices
@@ -497,7 +512,9 @@ def main():
 
         parent_matrices = children_matrices
 
-        # Export collected matrices
+        # ------------------------------------------------
+        # Export matrices collected at each generation
+        # ------------------------------------------------
         outfile = "collected_matrices_gen" + str(gen_nb) + ".tf"
         print("\tExporting collected matrices to file\t" + outfile)
         export_pssms(collected_matrices, outfile)
