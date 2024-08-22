@@ -216,7 +216,7 @@ def rescale_to_target(numbers, target):
     return rounded_numbers
 
 
-def apply_mutation(original_counts, percent_change):
+def apply_mutation(original_counts, residue_index, percent_change):
     """
     Applies a mutation to a specific position in a PSSM.
 
@@ -236,9 +236,6 @@ def apply_mutation(original_counts, percent_change):
     total_counts = sum(original_counts)
     mutated_counts = original_counts.copy()
 
-    # Select a residue to mutate
-    residue_index = random.randint(0, 3)
-    # residue_index = 3 # JvH tmp
     change_amount = min(round(total_counts * (percent_change / 100)), total_counts - original_counts[residue_index])
 
     if change_amount > 0:
@@ -318,9 +315,15 @@ def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, m
         mutated_position_index = random.randint(0, height - 1)
         original_counts = list(mutated_matrix_df.row(mutated_position_index))[1:]
 
+        # Select a residue to mutate
+        residue_index = random.randint(0, 3)
+        # residue_index = 3 # JvH tmp
+
+        # Select percent change randomly
         percent_change = random.uniform(min_percent, max_percent)
+
         # Apply mutation using the apply_mutation function
-        mutated_counts = apply_mutation(original_counts, percent_change)
+        mutated_counts = apply_mutation(original_counts, residue_index,  percent_change)
 
         # Update the row with mutated counts
         mutated_row = [mutated_position_index + 1] + mutated_counts
@@ -337,7 +340,7 @@ def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, m
             f"  AC of parent matrix: {parent_ac}",
             f"  ID of parent matrix: {parent_id}",
             f"  Child number: {child_nb}",
-            f"  Mutated position {mutated_position_index + 1}, percent change {percent_change:.2f}%"
+            f"  Mutated position {mutated_position_index + 1}, residue number {residue_index + 1}, percent change {percent_change:.2f}%"
         ]
 
         mutated_matrices.append({
