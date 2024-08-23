@@ -1,11 +1,10 @@
 import csv
+import io
 import math
+import os
 import random
 import re
 import subprocess
-import concurrent.futures
-import os
-import io
 
 import polars as pl
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
@@ -363,6 +362,7 @@ def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, m
 
 
 def compute_stats(pos_data, neg_data, score_col='weight', group_col='ft_name', score_threshold=-100):
+    # Function to compute stats per group
     def compute_group_stats(df):
         # Sort by score in descending order
         df = df.sort(score_col, descending=True)
@@ -447,9 +447,11 @@ def compute_stats(pos_data, neg_data, score_col='weight', group_col='ft_name', s
             "stat_per_score": df_new_score
         }
 
+    # Merge positive and negative data frames
     data = pos_data.vstack(neg_data)
 
-    # Function to compute stats per group
+    # Filter out rows with score lower than threshold
+    data = data.filter(pl.col(score_col) > score_threshold)
 
     # Process each group separately
     results = {}
@@ -478,7 +480,12 @@ def compute_stats_from_files(pos_file, neg_file, score_col='weight', group_col='
     # Load positive and negative datasets with labels
     pos_data = read_data(pos_file, 1)
     neg_data = read_data(neg_file, 0)
-    compute_stats(pos_data=pos_data, neg_data=neg_data, score_col='weight', group_col='ft_name', score_threshold=-100)
+    result = compute_stats(pos_data=pos_data,
+                           neg_data=neg_data,
+                           score_col='weight',
+                           group_col='ft_name',
+                           score_threshold=-100)
+    return result
 
 
 def run_command(command, verbose=0):
@@ -494,14 +501,8 @@ def run_command(command, verbose=0):
     # }
 
 
-def scan_sequences(rsat_cmd,
-                   seq_file,
-                   label,
-                   matrix_file,
-                   bg_file,
-                   score_col='weight',
-                   group_col='ft_name',
-                   score_threshold=-100):
+def scan_sequences(rsat_cmd, seq_file, label, matrix_file, bg_file,
+                   score_col='weight', group_col='ft_name', score_threshold=-100):
     scan_cmd = (rsat_cmd +
                 ' matrix-scan  -quick -v 1'
                 ' -m ' + matrix_file +
@@ -542,8 +543,10 @@ def score_matrix(rsat_cmd, seq_file_pos, seq_file_neg, matrix_file, bg_file):
     print("\t\tScanning negative sequence file: " + seq_file_neg)
     neg_hits = scan_sequences(rsat_cmd=rsat_cmd, seq_file=seq_file_neg, label=0,
                               matrix_file=matrix_file, bg_file=bg_file)
+    print("\t\tComputing performance statistics (pos vs neg)")
     matrix_stat = compute_stats(pos_data=pos_hits, neg_data=neg_hits, score_col='weight', group_col='ft_name')
     return matrix_stat
+
 
 def main():
     # ------------------------------------------------
@@ -552,10 +555,10 @@ def main():
     min_percent = 5  # min percent change at each mutation
     max_percent = 30  # max percent change at each mutation
     nb_generations = 2  # number of generations
-    selection_size = 5  # number of individuals to keep from each generation
+    # selection_size = 5  # number of individuals to keep from each generation
     n_children = 10  # number fo children per parent at each generation
-    # matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
-    matrix_file = 'data/matrices/test_matrix_1.tf'
+    matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
+    # matrix_file = 'data/matrices/test_matrix_1.tf'
     scan_file_pos = 'data/scans/CHS_GABPA_THC_0866_peakmo-clust-matrices_train.tsv'
     scan_file_neg = 'data/scans/CHS_GABPA_THC_0866_peakmo-clust-matrices_rand.tsv'
     seq_file_pos = 'data/sequences/THC_0866.fasta'
@@ -569,22 +572,54 @@ def main():
                 'eeadcsiccompbio/rsat:{2} rsat').format(
         base_dir, base_dir, rsat_version)
 
-    matrix_stat = score_matrix(rsat_cmd, seq_file_pos, seq_file_neg, matrix_file, bg_file)
-    print(matrix_stat)
-
-    return
+    # create directory to export matrices with performance scores
+    matrix_out_dir = 'results/matrices'
+    if not os.path.exists(matrix_out_dir):
+        os.makedirs(matrix_out_dir)
 
     # ------------------------------------------------
     # Load original matrices
     # ------------------------------------------------
-    parsed_matrices = parse_transfac(matrix_file)
+    print('\tLoading matrices from file: ' + matrix_file)
+    matrices = parse_transfac(matrix_file)
+
+    # print('\tExporting matrices to file: ' + matrix_file + '.test')
+    # export_pssms(matrices, matrix_file + '.test')
+
+    # ------------------------------------------------
+    # Score matrices according to their capability to discriminate positive from negative sequences
+    # ------------------------------------------------
+    for matrix in matrices:
+        # Export this matrix in a separate file for scanning
+        matrix_ac = matrix['metadata']['AC']
+        one_matrix_file = 'results/matrices/' + matrix_ac + '.tf'
+        print('\t\tExporting matrix ' + matrix_ac + ' to file ' + one_matrix_file)
+        export_pssms([matrix], one_matrix_file)
+
+        # Compute performance statistics for this matrix
+        matrix_stat = score_matrix(rsat_cmd, seq_file_pos, seq_file_neg, one_matrix_file, bg_file)
+
+        # Append classification performance scores to matrix comments
+        matrix['metadata']['CC'] = matrix['metadata']['CC'] + [
+            '  Performance metrics',
+            '    AuROC: ' + str(matrix_stat[matrix_ac]['AuROC']),
+            '    AuPR: ' + str(matrix_stat[matrix_ac]['AuPR']),
+        ]
+        print('\t\tAuROC: ' + str(matrix_stat[matrix_ac]['AuROC']))
+        print('\t\tAuPR: ' + str(matrix_stat[matrix_ac]['AuPR']))
+        scored_matrix_file = 'results/matrices/' + matrix_ac + '_scored.tf'
+        print('\t\tExporting scored matrix ' + matrix_ac + ' to file ' + scored_matrix_file)
+        export_pssms([matrix], scored_matrix_file)
 
     # ------------------------------------------------
     # GA algorithm
     # ------------------------------------------------
-    collected_matrices = parsed_matrices
-    parent_matrices = parsed_matrices
-    # iterate over generations
+    collected_matrices = matrices
+    parent_matrices = matrices
+    print('Matrix proliferation over ' + str(nb_generations) + ' generations; '
+          + str(n_children), ' children per generation')
+
+    # Iterate over generations
     for g in range(nb_generations):
         gen_nb = g + 1
         children_matrices = []
@@ -593,12 +628,14 @@ def main():
         for m in range(len(parent_matrices)):
             matrix = parent_matrices[m]
             # Collect mutated matrices
-            mutated_matrices = mutate_pssm(matrix,
-                                           gen_nb=gen_nb,
-                                           matrix_nb=m + 1,
-                                           n_children=n_children,
-                                           min_percent=min_percent,
-                                           max_percent=max_percent)
+            mutated_matrices = mutate_pssm(
+                matrix,
+                gen_nb=gen_nb,
+                matrix_nb=m + 1,
+                n_children=n_children,
+                min_percent=min_percent,
+                max_percent=max_percent,
+            )
             children_matrices = children_matrices + mutated_matrices
         print("\tchildren matrices: " + str(len(children_matrices)))
         collected_matrices = collected_matrices + children_matrices
@@ -613,14 +650,11 @@ def main():
         print("\tExporting collected matrices to file\t" + outfile)
         export_pssms(collected_matrices, outfile)
 
-    return
-
     # ------------------------------------------------
     # Compute classification statistics per PSSM from two sequence scanning files (positive and negative data sets)
     # ------------------------------------------------
-    stats_per_motif = compute_stats_from_files(scan_file_pos,
-                                               scan_file_neg,
-                                               'weight', 'ft_name')
+    print("\tComputing performance statistics with compute_stats_from_files()")
+    stats_per_motif = compute_stats_from_files(scan_file_pos, scan_file_neg, 'weight', 'ft_name')
     print(stats_per_motif)
 
     # ------------------------------------------------
