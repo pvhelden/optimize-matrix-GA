@@ -541,19 +541,6 @@ def scan_sequences(rsat_cmd, seq_file, label, matrix_file, bg_file,
     # return result
 
 
-def score_matrix_old(rsat_cmd, seq_file_pos, seq_file_neg, matrix_file, bg_file):
-    print("\tScoring matrix: " + matrix_file)
-    print("\t\tScanning positive sequence file: " + seq_file_pos)
-    pos_hits = scan_sequences(rsat_cmd=rsat_cmd, seq_file=seq_file_pos, label=1,
-                              matrix_file=matrix_file, bg_file=bg_file)
-    print("\t\tScanning negative sequence file: " + seq_file_neg)
-    neg_hits = scan_sequences(rsat_cmd=rsat_cmd, seq_file=seq_file_neg, label=0,
-                              matrix_file=matrix_file, bg_file=bg_file)
-    print("\t\tComputing performance statistics (pos vs neg)")
-    matrix_stat = compute_stats(pos_data=pos_hits, neg_data=neg_hits, score_col='weight', group_col='ft_name')
-    return matrix_stat
-
-
 def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_out_dir='results/matrices'):
     """
     Processes a single matrix by performing the following steps:
@@ -671,6 +658,95 @@ def score_matrices(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file,
     return results
 
 
+def genetic_algorithm(file_path, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, n_generations, k, mutation_rate,
+                      n_children, file_prefix):
+    """
+    Perform a genetic algorithm for optimizing Position-Specific Scoring Matrices (PSSMs).
+
+    This algorithm evolves an initial set of PSSMs over a specified number of generations,
+    selecting the top-performing matrices in each generation and generating new matrices
+    through cloning followed by mutation. The matrices are scored based on their ability
+    to discriminate between positive and negative sequence sets.
+
+    Parameters:
+    -----------
+    file_path : str
+        The path to the input file containing the initial PSSMs in a transfac format.
+    rsat_cmd : str
+        The command or path to the RSAT utility used for scoring the matrices.
+    seq_file_pos : str
+        The file path to the positive sequences in FASTA format.
+    seq_file_neg : str
+        The file path to the negative sequences in FASTA format.
+    bg_file : str
+        The file path to the background model used for scoring.
+    n_generations : int
+        The number of generations to evolve the matrices.
+    k : int
+        The number of top-scoring matrices to select for reproduction in each generation.
+    mutation_rate : float
+        The probability of applying a mutation to a matrix.
+    n_children : int
+        The number of offspring (mutated matrices) to generate from each selected parent matrix.
+    file_prefix : str
+        The prefix for the output files. Matrices for each generation will be saved with this
+        prefix, followed by `_gen#`, where `#` is the generation number, and the `.tf` suffix.
+
+    Returns:
+    --------
+    list
+        A list of the final set of optimized matrices after the last generation.
+
+    Example:
+    --------
+        final_matrices = genetic_algorithm(
+            file_path="input.tf",
+            rsat_cmd="/path/to/rsat",
+            seq_file_pos="positives.fasta",
+            seq_file_neg="negatives.fasta",
+            bg_file="background.bg",
+            n_generations=10,
+            k=5,
+            mutation_rate=0.1,
+            n_children=10,
+            file_prefix="output")
+    """
+    # Step 1: Read the initial matrices (Generation 0)
+    current_generation = parse_transfac(file_path)
+
+    # Evolution Process
+    for generation in range(n_generations):
+        # Step 2: Score the matrices of the current generation
+        scores = []
+        for matrix in current_generation:
+            matrix_file = save_matrix_to_file(matrix)  # Assuming a helper function to save matrix to file
+            score = score_matrix(rsat_cmd, seq_file_pos, seq_file_neg, matrix_file, bg_file)
+            scores.append((matrix, score))
+
+        # Step 3: Sort matrices by decreasing score
+        sorted_scores = sort_matrices(current_generation, scores)
+
+        # Step 4: Select the top-k scoring matrices
+        top_matrices = [matrix for matrix, score in sorted_scores[:k]]
+
+        # Step 5: Create the next generation
+        next_generation = []
+        for i, matrix in enumerate(top_matrices):
+            for _ in range(n_children):
+                cloned_matrix = copy.deepcopy(matrix)
+                mutated_matrix = mutate_pssm(cloned_matrix, gen_nb=generation + 1, matrix_nb=i + 1,
+                                             n_children=n_children)
+                next_generation.append(mutated_matrix)
+
+        # Step 6: Export the matrices of the current generation
+        output_file = f"{file_prefix}_gen{generation}.tf"
+        export_pssms(next_generation, output_file, out_format='transfac')
+
+        # Prepare for the next iteration
+        current_generation = next_generation
+
+    # Return the final set of optimized matrices
+    return current_generation
 
 
 def main():
