@@ -8,6 +8,9 @@ import random
 import re
 import subprocess
 
+# import openpyxl  # Not explicitly called by required for xlsx export wiht pandas
+# _ = openpyxl.Workbook  # Explicit code to prevent Pycharm from suppressing the import when calling optimize imports
+
 import pandas as pd
 import polars as pl
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
@@ -668,6 +671,8 @@ def score_matrices(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file,
     return results
 
 
+
+
 def main():
     # ------------------------------------------------
     # Parameters
@@ -724,7 +729,7 @@ def main():
 
     # Export matrix scores to Excel
     matrix_scores_excel = matrix_out_dir + '/matrix_scores.xlsx'
-#    matrix_scores_df.to_excel(matrix_scores_excel, index=False)
+    matrix_scores_df.to_excel(matrix_scores_excel, index=False)
 
     # ------------------------------------------------
     # GA algorithm
