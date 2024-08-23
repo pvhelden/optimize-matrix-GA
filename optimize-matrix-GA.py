@@ -8,6 +8,7 @@ import random
 import re
 import subprocess
 
+import pandas as pd
 import polars as pl
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
 
@@ -594,8 +595,8 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_o
         '    AuROC: ' + str(matrix_stat[matrix_ac]['AuROC']),
         '    AuPR: ' + str(matrix_stat[matrix_ac]['AuPR']),
     ]
-    print('\t\tAuROC: ' + str(matrix_stat[matrix_ac]['AuROC']))
-    print('\t\tAuPR: ' + str(matrix_stat[matrix_ac]['AuPR']))
+    print('\t\t\tAuROC: ' + str(matrix_stat[matrix_ac]['AuROC']))
+    print('\t\t\tAuPR: ' + str(matrix_stat[matrix_ac]['AuPR']))
 
     # Export the scored matrix to a separate file
     scored_matrix_file = matrix_out_dir + '/' + matrix_ac + '_scored.tf'
@@ -707,14 +708,23 @@ def main():
     # ------------------------------------------------
     scored_matrices = score_matrices(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_out_dir,
                                      num_threads=10)
-    # Save scored matrices to a JSON file
-    json_scored_matrix_file = matrix_out_dir + '/scored_matrices.json'
-    print("Saving scored matrices to file: " + json_scored_matrix_file)
-    with open(json_scored_matrix_file, 'w') as file:
+    # Export matrix scores to JSON
+    matrix_scores_json = matrix_out_dir + '/matrix_scores.json'
+    print("Saving scored matrices to file: " + matrix_scores_json)
+    with open(matrix_scores_json, 'w') as file:
         json.dump(scored_matrices, file, indent=4)
 
     # Reformat the results to a table
-    #print('\tSaving scored matrices to file: ' + scored_matrix_file_csv)
+    # Convert to DataFrame
+    matrix_scores_df = pd.DataFrame(scored_matrices)
+
+    # Export matrix scores to TSV
+    matrix_scores_tsv = matrix_out_dir + '/matrix_scores.tsv'
+    matrix_scores_df.to_csv(matrix_scores_tsv, index=False, sep='\t')
+
+    # Export matrix scores to Excel
+    matrix_scores_excel = matrix_out_dir + '/matrix_scores.xlsx'
+#    matrix_scores_df.to_excel(matrix_scores_excel, index=False)
 
     # ------------------------------------------------
     # GA algorithm
