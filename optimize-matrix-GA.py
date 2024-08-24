@@ -1,6 +1,5 @@
 import concurrent.futures
 import copy
-import csv
 import io
 import json
 import math
@@ -12,13 +11,11 @@ import sys
 
 import pandas as pd
 import polars as pl
+from loguru import logger
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
 
 # import openpyxl  # Not explicitly called by required for xlsx export wiht pandas
 # _ = openpyxl.Workbook  # Explicit code to prevent Pycharm from suppressing the import when calling optimize imports
-
-from loguru import logger
-
 
 
 # ----------------------------------------------------------------
@@ -768,7 +765,7 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
 
         # Export all the scored matrices of the current generation
         output_file = f"{outfile_prefix}_gen{generation}_scored.tf"
-        log_message("info", 2, f"Saving all scored matrices to {output_file}")
+        log_message("info", 2, f"Saving {len(current_generation)} scored matrices to {output_file}")
         export_pssms(current_generation, output_file)
 
         # Sort matrices by decreasing score
@@ -798,7 +795,8 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
                 next_generation = next_generation + mutated_matrices
 
             # Prepare for the next iteration
-            current_generation = next_generation
+            # Aggregate top matrices to next generation because some of them might be better than their offsprint
+            current_generation = next_generation + top_matrices
 
     # Return the final set of optimized matrices
     return current_generation
