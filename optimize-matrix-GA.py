@@ -595,7 +595,7 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, tmp_dir=
     matrix_ac = matrix['metadata']['AC']
     log_message("info", 3, f"Scoring matrix {matrix_ac}")
 
-    single_matrix_file = os.path.join(tmp_dir,  matrix_ac + '.tf')
+    single_matrix_file = os.path.join(tmp_dir, matrix_ac + '.tf')
     log_message("debug", 3, f"Exporting matrix {matrix_ac} to file {single_matrix_file}")
     export_pssms([matrix], single_matrix_file)
 
@@ -884,7 +884,7 @@ def main():
     matrix_scores_df = pl.DataFrame(scored_matrices)
 
     # Export matrix scores to TSV
-    matrix_scores_tsv = outfile_prefix  + '_matrix_scores.tsv'
+    matrix_scores_tsv = outfile_prefix + '_matrix_scores.tsv'
     matrix_scores_df.write_csv(matrix_scores_tsv, separator='\t')
 
     # Export matrix scores to Excel
