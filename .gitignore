@@ -162,6 +162,7 @@ cython_debug/
 #.idea/
 
 .idea/
-#*#
+
 \#*\#
-results
+results/matrices
+tmp

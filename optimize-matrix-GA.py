@@ -1,19 +1,54 @@
 import concurrent.futures
-import csv
+import copy
 import io
-import json
 import math
 import os
 import random
 import re
 import subprocess
+import sys
 
-# import openpyxl  # Not explicitly called by required for xlsx export wiht pandas
-# _ = openpyxl.Workbook  # Explicit code to prevent Pycharm from suppressing the import when calling optimize imports
-
-import pandas as pd
 import polars as pl
+from loguru import logger
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
+
+# ----------------------------------------------------------------
+# Handle verbosity
+# ----------------------------------------------------------------
+# Remove all existing handlers to avoid duplication
+logger.remove()
+
+# Add a single handler with DEBUG level to handle all message types
+logger.add(sys.stdout, format="{time} {level} {message}", level="DEBUG")
+
+# Global verbosity level
+VERBOSITY = 1
+
+
+def set_verbosity(level):
+    global VERBOSITY
+    VERBOSITY = level
+
+
+def get_indentation(level):
+    """Return the number of spaces for indentation based on verbosity level."""
+    return " " * (level * 4)  # 4 spaces per level
+
+
+def log_message(msg_type, level, message):
+    """Log a message with indentation based on verbosity level."""
+    if VERBOSITY >= level:
+        indentation = get_indentation(level)
+        formatted_message = f"{indentation}{message}"
+        # Map msg_type to the corresponding Loguru method
+        if msg_type == "info":
+            logger.info(formatted_message)
+        elif msg_type == "warning":
+            logger.warning(formatted_message)
+        elif msg_type == "debug":
+            logger.debug(formatted_message)
+        else:
+            print(formatted_message)
 
 
 def parse_transfac(file_path):
@@ -123,7 +158,7 @@ def export_pssms(pssms, file_path, out_format='transfac'):
         - 'matrix': A Polars DataFrame with columns 'Position', 'A', 'C', 'G', and 'T', representing the
                     nucleotide frequencies at each position in the matrix.
 
-    file_path : str
+    file_path : str | LiteralString
         The path to the file where the exported matrices will be saved.
 
     out_format : str, optional
@@ -276,7 +311,7 @@ def apply_mutation(original_counts: list[int], residue_index: int, percent_chang
     return mutated_counts
 
 
-def mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, max_percent=25):
+def clone_and_mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_percent=5, max_percent=25):
     """
     Generates a set of mutated position-specific scoring matrices (PSSMs) from a parent matrix by randomly mutating one
     position per child matrix.
@@ -494,17 +529,10 @@ def compute_stats_from_files(pos_file, neg_file, score_col='weight', group_col='
     return result
 
 
-def run_command(command, verbose=0):
-    if verbose > 0:
-        print('Running command:\n\t{}'.format(command))
+def run_command(command):
+    log_message("debug", 3, f"Running command\n\t{format(command)}")
     result = subprocess.run(command, shell=True, text=True, capture_output=True)
     return result
-    # return {
-    #    'command': command,
-    #    'output': result.stdout,
-    #    'error': result.stderr,
-    #    'return_code': result.return_code
-    # }
 
 
 def scan_sequences(rsat_cmd, seq_file, label, matrix_file, bg_file,
@@ -518,16 +546,16 @@ def scan_sequences(rsat_cmd, seq_file, label, matrix_file, bg_file,
                 '-bgfile ' + bg_file +
                 ' -bg_pseudo 0.01 -pseudo 1 -decimals 1 -2str -return sites -uth rank_pm 1 -n score'
                 )
+    log_message("info", 3, f"Running scan command with matrix file {matrix_file} and label {label}")
     # Run the command
-    result = run_command(scan_cmd)
+    scan_result = run_command(scan_cmd)
 
     # Catch the stout in a buffer to enable post-processing with pl.read_csv
     # - filter out comment lines
     # - get the header
     # - select only required columns
-    csv_buffer = io.StringIO(result.stdout)
-
-    return pl.read_csv(
+    csv_buffer = io.StringIO(scan_result.stdout)
+    result = pl.read_csv(
         csv_buffer,
         comment_prefix=';',
         has_header=True,
@@ -538,23 +566,10 @@ def scan_sequences(rsat_cmd, seq_file, label, matrix_file, bg_file,
         pl.lit(label).alias('label'),
     ]).filter(pl.col(score_col) >= score_threshold)
 
-    # return result
+    return result
 
 
-def score_matrix_old(rsat_cmd, seq_file_pos, seq_file_neg, matrix_file, bg_file):
-    print("\tScoring matrix: " + matrix_file)
-    print("\t\tScanning positive sequence file: " + seq_file_pos)
-    pos_hits = scan_sequences(rsat_cmd=rsat_cmd, seq_file=seq_file_pos, label=1,
-                              matrix_file=matrix_file, bg_file=bg_file)
-    print("\t\tScanning negative sequence file: " + seq_file_neg)
-    neg_hits = scan_sequences(rsat_cmd=rsat_cmd, seq_file=seq_file_neg, label=0,
-                              matrix_file=matrix_file, bg_file=bg_file)
-    print("\t\tComputing performance statistics (pos vs neg)")
-    matrix_stat = compute_stats(pos_data=pos_hits, neg_data=neg_hits, score_col='weight', group_col='ft_name')
-    return matrix_stat
-
-
-def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_out_dir='results/matrices'):
+def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, tmp_dir='tmp'):
     """
     Processes a single matrix by performing the following steps:
     1. Exports the matrix to a file for scanning.
@@ -568,7 +583,8 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_o
         seq_file_pos (str): path to the positive sequence file.
         seq_file_neg (str): path to the negative sequence file.
         bg_file (str): path to the background file.
-        matrix_out_dir (str, optional): directory to save the matrix files.
+        tmp_dir (str, optional): temporary directory to save the single-matrix files used by matrix-scan-quick.
+            These files are automatically deleted after use.
 
     Side Effects:
         - Writes matrix data to disk.
@@ -576,20 +592,23 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_o
     """
     # Export this matrix in a separate file for scanning
     matrix_ac = matrix['metadata']['AC']
-    single_matrix_file = matrix_out_dir + '/' + matrix_ac + '.tf'
-    print('\t\tExporting matrix ' + matrix_ac + ' to file ' + single_matrix_file)
+    log_message("info", 3, f"Scoring matrix {matrix_ac}")
+
+    # single_matrix_file = os.path.join(tmp_dir, matrix_ac + '.tf')
+    single_matrix_file = tmp_dir + '/' + matrix_ac + '.tf'
+    log_message("debug", 3, f"Exporting matrix {matrix_ac} to file {single_matrix_file}")
     export_pssms([matrix], single_matrix_file)
 
     # Compute performance statistics for this matrix
     # matrix_stat = score_matrix(rsat_cmd, seq_file_pos, seq_file_neg, single_matrix_file, bg_file)
-    print("\tScoring matrix: " + matrix_ac)
-    print("\t\tScanning positive sequence file: " + seq_file_pos)
+    log_message("debug", 3, f"Scoring matrix {matrix_ac}")
+    log_message("debug", 4, f"Scanning positive sequence file: {seq_file_pos}")
     pos_hits = scan_sequences(rsat_cmd=rsat_cmd, seq_file=seq_file_pos, label=1,
                               matrix_file=single_matrix_file, bg_file=bg_file)
-    print("\t\tScanning negative sequence file: " + seq_file_neg)
+    log_message("debug", 4, "Scanning negative sequence file: " + seq_file_neg)
     neg_hits = scan_sequences(rsat_cmd=rsat_cmd, seq_file=seq_file_neg, label=0,
                               matrix_file=single_matrix_file, bg_file=bg_file)
-    print("\t\tComputing performance statistics (pos vs neg)")
+    log_message("debug", 4, "Computing performance statistics (pos vs neg)")
     matrix_stat = compute_stats(pos_data=pos_hits, neg_data=neg_hits, score_col='weight', group_col='ft_name')
 
     # Append classification performance scores to matrix comments
@@ -598,20 +617,18 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_o
         '    AuROC: ' + str(matrix_stat[matrix_ac]['AuROC']),
         '    AuPR: ' + str(matrix_stat[matrix_ac]['AuPR']),
     ]
-    print('\t\t\tAuROC: ' + str(matrix_stat[matrix_ac]['AuROC']))
-    print('\t\t\tAuPR: ' + str(matrix_stat[matrix_ac]['AuPR']))
+    log_message("info", 4, 'AuROC: ' + str(matrix_stat[matrix_ac]['AuROC']))
+    log_message("info", 4, 'AuPR: ' + str(matrix_stat[matrix_ac]['AuPR']))
 
-    # Export the scored matrix to a separate file
-    scored_matrix_file = matrix_out_dir + '/' + matrix_ac + '_scored.tf'
-    print('\t\tExporting scored matrix ' + matrix_ac + ' to file ' + scored_matrix_file)
-    export_pssms([matrix], scored_matrix_file)
+    # Remove the temporary file used for scanning with matrix-scan-quick
+    os.remove(single_matrix_file)
 
     # Return matrix and the associated statistics
     result = {
         "AC": matrix['metadata']['AC'],
         "ID": matrix['metadata']['ID'],
-        "single_matrix_file": single_matrix_file,
-        "scored_matrix_file": scored_matrix_file,
+        # "single_matrix_file": single_matrix_file,
+        # "scored_matrix_file": scored_matrix_file,
         "AuROC": matrix_stat[matrix_ac]['AuROC'],
         "roc_auc": matrix_stat[matrix_ac]['roc_auc'],
         "AuPR": matrix_stat[matrix_ac]['AuPR'],
@@ -621,20 +638,21 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_o
 
 
 def score_matrices(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file,
-                   matrix_out_dir='results/matrices', num_threads=4):
+                   tmp_dir='tmp', n_threads=4):
     """
     Code generated by ChatGPT.
 
     Parallelizes the processing of multiple matrices using a thread pool.
 
     Args:
-        matrices (list of dict): A list of matrices to be processed. Each matrix is a dictionary containing metadata.
+        matrices (list of dict): A list of matrices to be processed. Each matrix is a dictionary containing
+            metadata and a data frame representing the matrix.
         rsat_cmd (str): command to run RSAT software suite
         seq_file_pos (str): path to the positive sequence file.
         seq_file_neg (str): path to the negative sequence file.
         bg_file (str): path to the background file.
-        matrix_out_dir (str, optional): directory to save the matrix files.
-        num_threads (int, optional): The number of worker threads to use for parallel processing. Default is 4.
+        tmp_dir (str, optional): directory to save temporarily the single-matrix files used by matrix-scan-quick.
+        n_threads (int, optional): The number of worker threads to use for parallel processing. Default is 4.
 
     Returns:
         dict: A dictionary where each key is the accession number of a matrix, and the value is the result dictionary
@@ -650,14 +668,14 @@ def score_matrices(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file,
 
     Example usage:
         parallel_process_matrices(
-            matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_out_dir, num_threads=4)
+            matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, tmp_dir, n_threads=4)
     """
     # Create a thread pool with the desired number of workers
-    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
         # Submit tasks to the thread pool
         futures = [executor.submit(
             score_matrix,
-            matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_out_dir) for matrix in matrices]
+            matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, tmp_dir) for matrix in matrices]
 
         # Optionally, wait for all threads to complete and handle exceptions
         for future in concurrent.futures.as_completed(futures):
@@ -671,133 +689,197 @@ def score_matrices(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file,
     return results
 
 
+def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, outfile_prefix, tmp_dir,
+                      n_generations=4, k=5, n_children=10, n_threads=4, selection_score="AuROC"):
+    """
+    Perform a genetic algorithm for optimizing Position-Specific Scoring Matrices (PSSMs).
+
+    This algorithm evolves an initial set of PSSMs over a specified number of generations,
+    selecting the top-performing matrices in each generation and generating new matrices
+    through cloning followed by mutation. The matrices are scored based on their ability
+    to discriminate between positive and negative sequence sets.
+
+    Parameters:
+    -----------
+        matrices (list of dict): A list of matrices to be processed. Each matrix is a dictionary containing
+            metadata and a data frame representing the matrix.
+        rsat_cmd (str): command to run RSAT software suite
+        seq_file_pos (str): path to the positive sequence file.
+        seq_file_neg (str): path to the negative sequence file.
+        bg_file (str): path to the background file.
+        matrix_out_dir (str, optional): directory to save the matrix files at each generation.
+        tmp_dir (str, optional): directory to save the temporary matrix files used for sequence scanning
+            (automatically deleted after scanning)
+
+    rsat_cmd : str
+        The command or path to the RSAT utility used for scoring the matrices.
+    seq_file_pos : str
+        The file path to the positive sequences in FASTA format.
+    seq_file_neg : str
+        The file path to the negative sequences in FASTA format.
+    bg_file : str
+        The file path to the background model used for scoring.
+    n_generations : int
+        The number of generations to evolve the matrices.
+    k : int
+        The number of top-scoring matrices to select for reproduction in each generation.
+    mutation_rate : float
+        The probability of applying a mutation to a matrix.
+    n_children : int
+        The number of offspring (mutated matrices) to generate from each selected parent matrix.
+    file_prefix : str
+        The prefix for the output files. Matrices for each generation will be saved with this
+        prefix, followed by `_gen#`, where `#` is the generation number, and the `.tf` suffix.
+
+    Returns:
+    --------
+    list
+        A list of the final set of optimized matrices after the last generation.
+
+    Example:
+    --------
+        final_matrices = genetic_algorithm(
+            file_path="input.tf",
+            rsat_cmd="/path/to/rsat",
+            seq_file_pos="positives.fasta",
+            seq_file_neg="negatives.fasta",
+            bg_file="background.bg",
+            n_generations=10,
+            k=5,
+            mutation_rate=0.1,
+            n_children=10,
+            file_prefix="output")
+    """
+    # Step 1: Clone the initial matrices (Generation 0)
+    current_generation = copy.deepcopy(matrices)
+
+    # Evolution Process
+    for generation in range(n_generations + 1):
+        log_message('info', 1, f"Generation {generation}")
+
+        # Score the matrices of the current generation
+        matrix_scores = score_matrices(current_generation, rsat_cmd, seq_file_pos, seq_file_neg, bg_file,
+                                       tmp_dir=tmp_dir, n_threads=n_threads)
+
+        # Export all the scored matrices of the current generation
+        output_file = f"{outfile_prefix}_gen{generation}_scored.tf"
+        log_message("info", 2, f"Saving {len(current_generation)} scored matrices to {output_file}")
+        export_pssms(current_generation, output_file)
+
+        # Sort matrices by decreasing score
+        sorted_scores = sorted(matrix_scores, key=lambda x: x[selection_score], reverse=True)
+
+        # Convert the sorted list into a DataFrame for a tabular view
+        sorted_score_table = pl.DataFrame(sorted_scores)
+
+        # Select the top-k scoring matrices
+        top_ac_values = sorted_score_table.head(k)['AC'].to_list()
+
+        # Filter the current_generation to keep only the matrices with top-k 'AC' values
+        top_matrices = [entry for entry in current_generation if entry['metadata']['AC'] in top_ac_values]
+
+        # Export the k top-scoring scored matrices of the current generation
+        output_file = f"{outfile_prefix}_gen{generation}_scored_{selection_score}_top{k}.tf"
+        log_message("info", 2, f"Saving top {k} scored matrices to {output_file}")
+        export_pssms(top_matrices, output_file, out_format='transfac')
+
+        # Create the next generation
+        if generation < n_generations:
+            log_message("debug", 4, "Cloning and mutating offspring matrices")
+            # Prepare for the next iteration
+            # Include top matrices to next generation because some of them might be better than their offsprint
+            next_generation = []
+            next_generation.extend(top_matrices)
+            for i, matrix in enumerate(top_matrices):
+                mutated_matrices = clone_and_mutate_pssm(
+                    matrix, gen_nb=generation + 1, matrix_nb=i + 1, n_children=n_children)
+                next_generation.extend(mutated_matrices)
+            current_generation = next_generation
+
+        # Return the final set of optimized matrices
+    return current_generation
 
 
 def main():
-    # ------------------------------------------------
+    # ----------------------------------------------------------------
     # Parameters
-    # ------------------------------------------------
-    min_percent = 5  # min percent change at each mutation
-    max_percent = 30  # max percent change at each mutation
-    nb_generations = 2  # number of generations
+    # ----------------------------------------------------------------
+    verbosity = 2
+    n_generations = 4  # number of generations
+    # n_children = 10  # number fo children per parent at each generation
+    # min_percent = 5  # min percent change at each mutation
+    # max_percent = 30  # max percent change at each mutation
+    n_threads = 10
     # selection_size = 5  # number of individuals to keep from each generation
-    n_children = 10  # number fo children per parent at each generation
-    matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
-    # matrix_file = 'data/matrices/test_matrix_1.tf'
-    scan_file_pos = 'data/scans/CHS_GABPA_THC_0866_peakmo-clust-matrices_train.tsv'
-    scan_file_neg = 'data/scans/CHS_GABPA_THC_0866_peakmo-clust-matrices_rand.tsv'
-    seq_file_pos = 'data/sequences/THC_0866.fasta'
-    seq_file_neg = 'data/sequences/THC_0866_rand-loci_noN.fa'
-    bg_file = 'data/bg_models/equiprobable_1str.tsv'
-    rsat_version = '20240820'
-    base_dir = '/Users/jvanheld/no_backup/rsat_github/optimize-matrix-GA'
-    rsat_cmd = ('docker run -v '
-                '{0}:/home/rsat_user '
-                '-v {1}/results:/home/rsat_user/out '
-                'eeadcsiccompbio/rsat:{2} rsat').format(
-        base_dir, base_dir, rsat_version)
 
-    # create directory to export matrices with performance scores
+    # RSAT configuration
+    rsat_version = '20240820'
+    base_dir = os.getcwd()
+    rsat_cmd = (f"docker run -v {base_dir}:/home/rsat_user -v {os.path.join(base_dir, 'results')}:/home/rsat_user/out "
+                f"eeadcsiccompbio/rsat:{rsat_version} rsat")
+    # rsat_cmd = '/Users/jvanheld/packages/rsat/bin/rsat'
+
+    # Baackground model
+    bg_file = 'data/bg_models/equiprobable_1str.tsv'
+
+    study_case = "GABPA"
+
+    if study_case == "LEF1":
+        # Configuration for LEF1 study case
+        matrix_file = \
+            'data/matrices/LEF1_HTS_LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA_peakmo-clust-trimmed.tf'
+        seq_file_pos = 'data/sequences/LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA.fasta'
+        seq_file_neg = 'data/sequences/LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA_rand-loci_noN.fa'
+    else:
+        # Configuration for GABPA study case
+        # matrix_file = 'data/matrices/test_matrix_1.tf'
+        matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
+        seq_file_pos = 'data/sequences/THC_0866.fasta'
+        seq_file_neg = 'data/sequences/THC_0866_rand-loci_noN.fa'
+
+    # Set verbosity level
+    set_verbosity(verbosity)
+
+    # Create directory for temporary files
+    tmp_dir = 'tmp'
+    if not os.path.exists(tmp_dir):
+        os.makedirs(tmp_dir)
+
+    # Create directory to export matrices with performance scores
     matrix_out_dir = 'results/matrices'
     if not os.path.exists(matrix_out_dir):
         os.makedirs(matrix_out_dir)
 
-    # ------------------------------------------------
+    # ----------------------------------------------------------------
     # Load original matrices
-    # ------------------------------------------------
-    print('\tLoading matrices from file: ' + matrix_file)
+    # ----------------------------------------------------------------
+    log_message("info", 1, f"Loading matrices from file {matrix_file}")
     matrices = parse_transfac(matrix_file)
 
-    # ------------------------------------------------
-    # Score matrices according to their capability to discriminate positive from negative sequences
-    # ------------------------------------------------
-    scored_matrices = score_matrices(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_out_dir,
-                                     num_threads=10)
-    # Export matrix scores to JSON
-    matrix_scores_json = matrix_out_dir + '/matrix_scores.json'
-    print("Saving scored matrices to file: " + matrix_scores_json)
-    with open(matrix_scores_json, 'w') as file:
-        json.dump(scored_matrices, file, indent=4)
+    # ----------------------------------------------------------------
+    # Run genetic algorithm to optimize the matrices
+    # ----------------------------------------------------------------
+    outfile_prefix = os.path.join(matrix_out_dir, re.sub(r'.tf$', '', os.path.basename(matrix_file)))
 
-    # Reformat the results to a table
-    # Convert to DataFrame
-    matrix_scores_df = pd.DataFrame(scored_matrices)
+    genetic_algorithm(
+        matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, outfile_prefix=outfile_prefix, tmp_dir=tmp_dir,
+        n_generations=n_generations, k=5, n_children=10, n_threads=n_threads)
 
-    # Export matrix scores to TSV
-    matrix_scores_tsv = matrix_out_dir + '/matrix_scores.tsv'
-    matrix_scores_df.to_csv(matrix_scores_tsv, index=False, sep='\t')
+    log_message("info", 0, f"Job's done.")
 
-    # Export matrix scores to Excel
-    matrix_scores_excel = matrix_out_dir + '/matrix_scores.xlsx'
-    matrix_scores_df.to_excel(matrix_scores_excel, index=False)
-
-    # ------------------------------------------------
-    # GA algorithm
-    # ------------------------------------------------
-    collected_matrices = matrices
-    parent_matrices = matrices
-    print('Matrix proliferation over ' + str(nb_generations) + ' generations; '
-          + str(n_children), ' children per generation')
-
-    # Iterate over generations
-    for g in range(nb_generations):
-        gen_nb = g + 1
-        children_matrices = []
-        print("Generation: " + str(gen_nb))
-        print("\tparent matrices: " + str(len(parent_matrices)))
-        for m in range(len(parent_matrices)):
-            matrix = parent_matrices[m]
-            # Collect mutated matrices
-            mutated_matrices = mutate_pssm(
-                matrix,
-                gen_nb=gen_nb,
-                matrix_nb=m + 1,
-                n_children=n_children,
-                min_percent=min_percent,
-                max_percent=max_percent,
-            )
-            children_matrices = children_matrices + mutated_matrices
-        print("\tchildren matrices: " + str(len(children_matrices)))
-        collected_matrices = collected_matrices + children_matrices
-        print("\tcollected matrices: " + str(len(collected_matrices)))
-
-        parent_matrices = children_matrices
-
-        # ------------------------------------------------
-        # Export matrices collected at each generation
-        # ------------------------------------------------
-        outfile = "collected_matrices_gen" + str(gen_nb) + ".tf"
-        print("\tExporting collected matrices to file\t" + outfile)
-        export_pssms(collected_matrices, outfile)
-
-    # ------------------------------------------------
-    # Compute classification statistics per PSSM from two sequence scanning files (positive and negative data sets)
-    # ------------------------------------------------
-    print("\tComputing performance statistics with compute_stats_from_files()")
-    stats_per_motif = compute_stats_from_files(scan_file_pos, scan_file_neg, 'weight', 'ft_name')
-    print(stats_per_motif)
-
-    # ------------------------------------------------
-    # Convert the dictionary to a list of tuples and sort by AuROC in decreasing order
-    # ------------------------------------------------
-    stats_per_motif_sorted = sorted(stats_per_motif.items(), key=lambda x: x[1]['AuROC'], reverse=True)
-
-    # Open the file in write mode
-    with open("stats_per_motif.tsv", mode='w', newline='') as file:
-        writer = csv.writer(file, delimiter='\t')
-
-        # Write the header
-        writer.writerow(["key", "AuROC", "roc_auc", "AuPR", "pr_auc"])
-
-        # Write the data
-        for key, values in stats_per_motif_sorted:
-            writer.writerow([
-                key,
-                f"{values['AuROC']:.4f}",
-                f"{values['roc_auc']:.4f}",
-                f"{values['AuPR']:.4f}",
-                f"{values['pr_auc']:.4f}"
-            ])
+    # # Export matrix scores to JSON
+    # matrix_scores_json = outfile_prefix + '_matrix_scores.json'
+    # log_message("info", 1, f"Saving scored matrices to file {matrix_scores_json}")
+    # with open(matrix_scores_json, 'w') as file:
+    #     json.dump(final_matrices, file, indent=4)
+    #
+    # # Reformat the results to a table
+    # # Convert to DataFrame
+    # matrix_scores_df = pl.DataFrame(final_matrices)
+    #
+    # # Export matrix scores to TSV
+    # matrix_scores_tsv = outfile_prefix + '_matrix_scores.tsv'
+    # matrix_scores_df.write_csv(matrix_scores_tsv, separator='\t')
 
 
 if __name__ == '__main__':

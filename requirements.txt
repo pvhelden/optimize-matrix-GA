@@ -1,6 +1,9 @@
+colorama==0.4.6
 joblib==1.4.2
+loguru==0.7.2
 numpy==2.1.0
 polars==1.5.0
 scikit-learn==1.5.1
 scipy==1.14.1
 threadpoolctl==3.5.0
+win32-setctime==1.1.0
