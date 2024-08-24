@@ -849,7 +849,7 @@ def main():
     # ----------------------------------------------------------------
     # Load original matrices
     # ----------------------------------------------------------------
-    log_message("info", 1, f"Loading matrices from file{matrix_file}")
+    log_message("info", 1, f"Loading matrices from file {matrix_file}")
     matrices = parse_transfac(matrix_file)
 
     # ----------------------------------------------------------------
