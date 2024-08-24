@@ -805,7 +805,7 @@ def main():
     # Parameters
     # ----------------------------------------------------------------
     verbosity = 2
-    n_generations = 10  # number of generations
+    n_generations = 4  # number of generations
     # n_children = 10  # number fo children per parent at each generation
     # min_percent = 5  # min percent change at each mutation
     # max_percent = 30  # max percent change at each mutation
@@ -864,32 +864,23 @@ def main():
     # ----------------------------------------------------------------
     outfile_prefix = os.path.join(matrix_out_dir, re.sub(r'.tf$', '', os.path.basename(matrix_file)))
 
-    genetic_algorithm(
+    final_matrices = genetic_algorithm(
         matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, outfile_prefix=outfile_prefix, tmp_dir=tmp_dir,
         n_generations=n_generations, k=5, n_children=10, n_threads=n_threads)
 
-    # ----------------------------------------------------------------
-    # Score matrices according to their capability to discriminate positive from negative sequences
-    # ----------------------------------------------------------------
-    scored_matrices = score_matrices(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, n_threads,
-                                     n_threads=10)
-    # Export matrix scores to JSON
-    matrix_scores_json = n_threads + '/matrix_scores.json'
-    log_message("info", 1, f"Saving scored matrices to file{matrix_scores_json}")
-    with open(matrix_scores_json, 'w') as file:
-        json.dump(scored_matrices, file, indent=4)
-
-    # Reformat the results to a table
-    # Convert to DataFrame
-    matrix_scores_df = pl.DataFrame(scored_matrices)
-
-    # Export matrix scores to TSV
-    matrix_scores_tsv = outfile_prefix + '_matrix_scores.tsv'
-    matrix_scores_df.write_csv(matrix_scores_tsv, separator='\t')
-
-    # Export matrix scores to Excel
-    # matrix_scores_excel = matrix_out_dir + '/matrix_scores.xlsx'
-    # matrix_scores_df.write_excel(matrix_scores_excel)
+    # # Export matrix scores to JSON
+    # matrix_scores_json = outfile_prefix + '_matrix_scores.json'
+    # log_message("info", 1, f"Saving scored matrices to file {matrix_scores_json}")
+    # with open(matrix_scores_json, 'w') as file:
+    #     json.dump(final_matrices, file, indent=4)
+    #
+    # # Reformat the results to a table
+    # # Convert to DataFrame
+    # matrix_scores_df = pl.DataFrame(final_matrices)
+    #
+    # # Export matrix scores to TSV
+    # matrix_scores_tsv = outfile_prefix + '_matrix_scores.tsv'
+    # matrix_scores_df.write_csv(matrix_scores_tsv, separator='\t')
 
 
 if __name__ == '__main__':
