@@ -9,14 +9,9 @@ import re
 import subprocess
 import sys
 
-import pandas as pd
 import polars as pl
 from loguru import logger
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
-
-# import openpyxl  # Not explicitly called by required for xlsx export wiht pandas
-# _ = openpyxl.Workbook  # Explicit code to prevent Pycharm from suppressing the import when calling optimize imports
-
 
 # ----------------------------------------------------------------
 # Handle verbosity
@@ -28,19 +23,22 @@ logger.remove()
 logger.add(sys.stdout, format="{time} {level} {message}", level="DEBUG")
 
 # Global verbosity level
-verbosity = 1
+VERBOSITY = 1
+
 
 def set_verbosity(level):
-    global verbosity
-    verbosity = level
+    global VERBOSITY
+    VERBOSITY = level
+
 
 def get_indentation(level):
     """Return the number of spaces for indentation based on verbosity level."""
     return " " * (level * 2)  # 2 spaces per level
 
+
 def log_message(msg_type, level, message):
     """Log a message with indentation based on verbosity level."""
-    if verbosity >= level:
+    if VERBOSITY >= level:
         indentation = get_indentation(level)
         formatted_message = f"{indentation}{message}"
         # Map msg_type to the corresponding Loguru method
@@ -52,7 +50,6 @@ def log_message(msg_type, level, message):
             logger.debug(formatted_message)
         else:
             print(formatted_message)
-
 
 
 def parse_transfac(file_path):
@@ -620,7 +617,7 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_o
         '    AuPR: ' + str(matrix_stat[matrix_ac]['AuPR']),
     ]
     log_message("info", 4, 'AuROC: ' + str(matrix_stat[matrix_ac]['AuROC']))
-    log_message("info",4, 'AuPR: ' + str(matrix_stat[matrix_ac]['AuPR']))
+    log_message("info", 4, 'AuPR: ' + str(matrix_stat[matrix_ac]['AuPR']))
 
     # Export the scored matrix to a separate file
     # scored_matrix_file = matrix_out_dir + '/' + matrix_ac + '_scored.tf'
@@ -634,8 +631,8 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_o
     result = {
         "AC": matrix['metadata']['AC'],
         "ID": matrix['metadata']['ID'],
-        #"single_matrix_file": single_matrix_file,
-        #"scored_matrix_file": scored_matrix_file,
+        # "single_matrix_file": single_matrix_file,
+        # "scored_matrix_file": scored_matrix_file,
         "AuROC": matrix_stat[matrix_ac]['AuROC'],
         "roc_auc": matrix_stat[matrix_ac]['roc_auc'],
         "AuPR": matrix_stat[matrix_ac]['AuPR'],
@@ -775,10 +772,10 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
         sorted_scores = sorted(matrix_scores, key=lambda x: x[selection_score], reverse=True)
 
         # Convert the sorted list into a DataFrame for a tabular view
-        sorted_score_table = pd.DataFrame(sorted_scores)
+        sorted_score_table = pl.DataFrame(sorted_scores)
 
         # Select the top-k scoring matrices
-        top_ac_values = sorted_score_table.head(k)['AC'].tolist()
+        top_ac_values = sorted_score_table.head(k)['AC'].to_list()
 
         # Filter the current_generation to keep only the matrices with top-k 'AC' values
         top_matrices = [entry for entry in current_generation if entry['metadata']['AC'] in top_ac_values]
@@ -811,9 +808,9 @@ def main():
     # ----------------------------------------------------------------
     verbosity = 2
     n_generations = 10  # number of generations
-    n_children = 10  # number fo children per parent at each generation
-    min_percent = 5  # min percent change at each mutation
-    max_percent = 30  # max percent change at each mutation
+    # n_children = 10  # number fo children per parent at each generation
+    # min_percent = 5  # min percent change at each mutation
+    # max_percent = 30  # max percent change at each mutation
     n_threads = 10
     # selection_size = 5  # number of individuals to keep from each generation
 
@@ -831,9 +828,9 @@ def main():
 
     # Configuration for GABPA study case
     # matrix_file = 'data/matrices/test_matrix_1.tf'
-    matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
-    seq_file_pos = 'data/sequences/THC_0866.fasta'
-    seq_file_neg = 'data/sequences/THC_0866_rand-loci_noN.fa'
+    # matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
+    # seq_file_pos = 'data/sequences/THC_0866.fasta'
+    # seq_file_neg = 'data/sequences/THC_0866_rand-loci_noN.fa'
 
     # Configuration for LEF1 study case
     matrix_file = \
@@ -875,15 +872,15 @@ def main():
 
     # Reformat the results to a table
     # Convert to DataFrame
-    matrix_scores_df = pd.DataFrame(scored_matrices)
+    matrix_scores_df = pl.DataFrame(scored_matrices)
 
     # Export matrix scores to TSV
     matrix_scores_tsv = matrix_out_dir + '/matrix_scores.tsv'
-    matrix_scores_df.to_csv(matrix_scores_tsv, index=False, sep='\t')
+    matrix_scores_df.write_csv(matrix_scores_tsv, separator='\t')
 
     # Export matrix scores to Excel
     matrix_scores_excel = matrix_out_dir + '/matrix_scores.xlsx'
-    matrix_scores_df.to_excel(matrix_scores_excel, index=False)
+    matrix_scores_df.write_excel(matrix_scores_excel)
 
 
 if __name__ == '__main__':
