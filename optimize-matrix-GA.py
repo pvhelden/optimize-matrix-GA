@@ -623,16 +623,19 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_o
     log_message("info",4, 'AuPR: ' + str(matrix_stat[matrix_ac]['AuPR']))
 
     # Export the scored matrix to a separate file
-    scored_matrix_file = matrix_out_dir + '/' + matrix_ac + '_scored.tf'
-    log_message("debug", 4, 'Exporting scored matrix ' + matrix_ac + ' to file ' + scored_matrix_file)
-    export_pssms([matrix], scored_matrix_file)
+    # scored_matrix_file = matrix_out_dir + '/' + matrix_ac + '_scored.tf'
+    # log_message("debug", 4, 'Exporting scored matrix ' + matrix_ac + ' to file ' + scored_matrix_file)
+    # export_pssms([matrix], scored_matrix_file)
+
+    # Remove the temporary file used for scanning with matrix-scan-quick
+    os.remove(single_matrix_file)
 
     # Return matrix and the associated statistics
     result = {
         "AC": matrix['metadata']['AC'],
         "ID": matrix['metadata']['ID'],
-        "single_matrix_file": single_matrix_file,
-        "scored_matrix_file": scored_matrix_file,
+        #"single_matrix_file": single_matrix_file,
+        #"scored_matrix_file": scored_matrix_file,
         "AuROC": matrix_stat[matrix_ac]['AuROC'],
         "roc_auc": matrix_stat[matrix_ac]['roc_auc'],
         "AuPR": matrix_stat[matrix_ac]['AuPR'],
