@@ -1,3 +1,4 @@
+import argparse
 import concurrent.futures
 import copy
 import io
@@ -690,7 +691,7 @@ def score_matrices(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file,
 
 
 def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, outfile_prefix, tmp_dir,
-                      n_generations=4, k=5, n_children=10, n_threads=4, selection_score="AuROC"):
+                      generations=4, select=5, children=10, threads=4, selection_score="AuROC"):
     """
     Perform a genetic algorithm for optimizing Position-Specific Scoring Matrices (PSSMs).
 
@@ -754,12 +755,12 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
     current_generation = copy.deepcopy(matrices)
 
     # Evolution Process
-    for generation in range(n_generations + 1):
+    for generation in range(generations + 1):
         log_message('info', 1, f"Generation {generation}")
 
         # Score the matrices of the current generation
         matrix_scores = score_matrices(current_generation, rsat_cmd, seq_file_pos, seq_file_neg, bg_file,
-                                       tmp_dir=tmp_dir, n_threads=n_threads)
+                                       tmp_dir=tmp_dir, n_threads=threads)
 
         # Export all the scored matrices of the current generation
         output_file = f"{outfile_prefix}_gen{generation}_scored.tf"
@@ -773,18 +774,18 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
         sorted_score_table = pl.DataFrame(sorted_scores)
 
         # Select the top-k scoring matrices
-        top_ac_values = sorted_score_table.head(k)['AC'].to_list()
+        top_ac_values = sorted_score_table.head(select)['AC'].to_list()
 
         # Filter the current_generation to keep only the matrices with top-k 'AC' values
         top_matrices = [entry for entry in current_generation if entry['metadata']['AC'] in top_ac_values]
 
         # Export the k top-scoring scored matrices of the current generation
-        output_file = f"{outfile_prefix}_gen{generation}_scored_{selection_score}_top{k}.tf"
-        log_message("info", 2, f"Saving top {k} scored matrices to {output_file}")
+        output_file = f"{outfile_prefix}_gen{generation}_scored_{selection_score}_top{select}.tf"
+        log_message("info", 2, f"Saving top {select} scored matrices to {output_file}")
         export_pssms(top_matrices, output_file, out_format='transfac')
 
         # Create the next generation
-        if generation < n_generations:
+        if generation < generations:
             log_message("debug", 4, "Cloning and mutating offspring matrices")
             # Prepare for the next iteration
             # Include top matrices to next generation because some of them might be better than their offsprint
@@ -792,7 +793,7 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
             next_generation.extend(top_matrices)
             for i, matrix in enumerate(top_matrices):
                 mutated_matrices = clone_and_mutate_pssm(
-                    matrix, gen_nb=generation + 1, matrix_nb=i + 1, n_children=n_children)
+                    matrix, gen_nb=generation + 1, matrix_nb=i + 1, n_children=children)
                 next_generation.extend(mutated_matrices)
             current_generation = next_generation
 
@@ -800,17 +801,13 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
     return current_generation
 
 
-def main():
+def main(verbosity, threads, generations, children, select, matrices, positives, negatives, background):
     # ----------------------------------------------------------------
     # Parameters
     # ----------------------------------------------------------------
-    verbosity = 2
-    n_generations = 4  # number of generations
-    # n_children = 10  # number fo children per parent at each generation
+
     # min_percent = 5  # min percent change at each mutation
     # max_percent = 30  # max percent change at each mutation
-    n_threads = 10
-    # selection_size = 5  # number of individuals to keep from each generation
 
     # RSAT configuration
     rsat_version = '20240820'
@@ -819,23 +816,20 @@ def main():
                 f"eeadcsiccompbio/rsat:{rsat_version} rsat")
     # rsat_cmd = '/Users/jvanheld/packages/rsat/bin/rsat'
 
-    # Baackground model
-    bg_file = 'data/bg_models/equiprobable_1str.tsv'
+    # study_case = "GABPA"
 
-    study_case = "GABPA"
-
-    if study_case == "LEF1":
-        # Configuration for LEF1 study case
-        matrix_file = \
-            'data/matrices/LEF1_HTS_LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA_peakmo-clust-trimmed.tf'
-        seq_file_pos = 'data/sequences/LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA.fasta'
-        seq_file_neg = 'data/sequences/LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA_rand-loci_noN.fa'
-    else:
-        # Configuration for GABPA study case
-        # matrix_file = 'data/matrices/test_matrix_1.tf'
-        matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
-        seq_file_pos = 'data/sequences/THC_0866.fasta'
-        seq_file_neg = 'data/sequences/THC_0866_rand-loci_noN.fa'
+    # if study_case == "LEF1":
+    #     # Configuration for LEF1 study case
+    #     matrix_file = \
+    #         'data/matrices/LEF1_HTS_LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA_peakmo-clust-trimmed.tf'
+    #     seq_file_pos = 'data/sequences/LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA.fasta'
+    #     seq_file_neg = 'data/sequences/LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA_rand-loci_noN.fa'
+    # else:
+    #     # Configuration for GABPA study case
+    #     # matrix_file = 'data/matrices/test_matrix_1.tf'
+    #     matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
+    #     seq_file_pos = 'data/sequences/THC_0866.fasta'
+    #     seq_file_neg = 'data/sequences/THC_0866_rand-loci_noN.fa'
 
     # Set verbosity level
     set_verbosity(verbosity)
@@ -853,17 +847,17 @@ def main():
     # ----------------------------------------------------------------
     # Load original matrices
     # ----------------------------------------------------------------
-    log_message("info", 1, f"Loading matrices from file {matrix_file}")
-    matrices = parse_transfac(matrix_file)
+    log_message("info", 1, f"Loading matrices from file {matrices}")
+    parsed_matrices = parse_transfac(matrices)
 
     # ----------------------------------------------------------------
     # Run genetic algorithm to optimize the matrices
     # ----------------------------------------------------------------
-    outfile_prefix = os.path.join(matrix_out_dir, re.sub(r'.tf$', '', os.path.basename(matrix_file)))
+    outfile_prefix = os.path.join(matrix_out_dir, re.sub(r'.tf$', '', os.path.basename(matrices)))
 
     genetic_algorithm(
-        matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, outfile_prefix=outfile_prefix, tmp_dir=tmp_dir,
-        n_generations=n_generations, k=5, n_children=10, n_threads=n_threads)
+        parsed_matrices, rsat_cmd, positives, negatives, background, outfile_prefix=outfile_prefix, tmp_dir=tmp_dir,
+        generations=generations, select=select, children=children, threads=threads)
 
     log_message("info", 0, f"Job's done.")
 
@@ -883,4 +877,25 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    print(*sys.argv)
+    parser = argparse.ArgumentParser(
+        description='Optimize position specific scoring matrices according to their capability to discriminate '
+                    'a positive from a negative sequence set.',
+    )
+    parser.add_argument('-v', '--verbosity', type=int, default=1, help='Verbosity level (int)')
+    parser.add_argument('-t', '--threads', type=int, default=1, help='Number of threads (int)')
+    parser.add_argument('-g', '--generations', type=int, default=2, help='Number of generations (int)')
+    parser.add_argument('-c', '--children', type=int, default=10,
+                        help='Number of children per generation (int)')
+    parser.add_argument('-s', '--select', type=int, default=5,
+                        help='Number of top matrices to select after each generation (int)')
+    parser.add_argument('-m', '--matrices', type=str, help='Transfac formatted matrix file path (str)')
+    parser.add_argument('-p', '--positives', type=str,
+                        help='Fasta formatted file containing positive sequences (str)')
+    parser.add_argument('-n', '--negatives', type=str,
+                        help='Fasta formatted file containing negative sequences (str)')
+    parser.add_argument('-b', '--background', type=str,
+                        help='rsat oligo-analysis formatted background model file (str)')
+    args = parser.parse_args()
+    main(args.verbosity, args.threads, args.generations, args.children, args.select,
+         args.matrices, args.positives, args.negatives, args.background)
