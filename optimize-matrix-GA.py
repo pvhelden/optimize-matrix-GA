@@ -595,7 +595,7 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, tmp_dir=
     matrix_ac = matrix['metadata']['AC']
     log_message("info", 3, f"Scoring matrix {matrix_ac}")
 
-    single_matrix_file = tmp_dir + '/' + matrix_ac + '.tf'
+    single_matrix_file = os.path.join(tmp_dir,  matrix_ac + '.tf')
     log_message("debug", 3, f"Exporting matrix {matrix_ac} to file {single_matrix_file}")
     export_pssms([matrix], single_matrix_file)
 
@@ -619,11 +619,6 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, tmp_dir=
     ]
     log_message("info", 4, 'AuROC: ' + str(matrix_stat[matrix_ac]['AuROC']))
     log_message("info", 4, 'AuPR: ' + str(matrix_stat[matrix_ac]['AuPR']))
-
-    # Export the scored matrix to a separate file
-    # scored_matrix_file = tmp_dir + '/' + matrix_ac + '_scored.tf'
-    # log_message("debug", 4, 'Exporting scored matrix ' + matrix_ac + ' to file ' + scored_matrix_file)
-    # export_pssms([matrix], scored_matrix_file)
 
     # Remove the temporary file used for scanning with matrix-scan-quick
     os.remove(single_matrix_file)
@@ -694,7 +689,7 @@ def score_matrices(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file,
     return results
 
 
-def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, outfile_prefix, matrix_out_dir, tmp_dir,
+def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, outfile_prefix, tmp_dir,
                       n_generations=4, k=5, n_children=10, n_threads=4, selection_score="AuROC"):
     """
     Perform a genetic algorithm for optimizing Position-Specific Scoring Matrices (PSSMs).
@@ -867,9 +862,10 @@ def main():
     # ----------------------------------------------------------------
     # Run genetic algorithm to optimize the matrices
     # ----------------------------------------------------------------
-    outfile_prefix = re.sub(r'.tf$', '', f'{matrix_out_dir}/{os.path.basename(matrix_file)}')
+    outfile_prefix = os.path.join(matrix_out_dir, re.sub(r'.tf$', '', os.path.basename(matrix_file)))
+
     genetic_algorithm(
-        matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, outfile_prefix, matrix_out_dir, tmp_dir,
+        matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, outfile_prefix=outfile_prefix, tmp_dir=tmp_dir,
         n_generations=n_generations, k=5, n_children=10, n_threads=n_threads)
 
     # ----------------------------------------------------------------
@@ -888,7 +884,7 @@ def main():
     matrix_scores_df = pl.DataFrame(scored_matrices)
 
     # Export matrix scores to TSV
-    matrix_scores_tsv = matrix_out_dir + '/matrix_scores.tsv'
+    matrix_scores_tsv = outfile_prefix  + '_matrix_scores.tsv'
     matrix_scores_df.write_csv(matrix_scores_tsv, separator='\t')
 
     # Export matrix scores to Excel
