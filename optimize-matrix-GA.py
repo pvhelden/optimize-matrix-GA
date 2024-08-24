@@ -8,14 +8,54 @@ import os
 import random
 import re
 import subprocess
+import sys
 
 import pandas as pd
 import polars as pl
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
 
-
 # import openpyxl  # Not explicitly called by required for xlsx export wiht pandas
 # _ = openpyxl.Workbook  # Explicit code to prevent Pycharm from suppressing the import when calling optimize imports
+
+from loguru import logger
+
+
+
+# ----------------------------------------------------------------
+# Handle verbosity
+# ----------------------------------------------------------------
+# Remove all existing handlers to avoid duplication
+logger.remove()
+
+# Add a single handler with DEBUG level to handle all message types
+logger.add(sys.stdout, format="{time} {level} {message}", level="DEBUG")
+
+# Global verbosity level
+verbosity = 1
+
+def set_verbosity(level):
+    global verbosity
+    verbosity = level
+
+def get_indentation(level):
+    """Return the number of spaces for indentation based on verbosity level."""
+    return " " * (level * 2)  # 2 spaces per level
+
+def log_message(msg_type, level, message):
+    """Log a message with indentation based on verbosity level."""
+    if verbosity >= level:
+        indentation = get_indentation(level)
+        formatted_message = f"{indentation}{message}"
+        # Map msg_type to the corresponding Loguru method
+        if msg_type == "info":
+            logger.info(formatted_message)
+        elif msg_type == "warning":
+            logger.warning(formatted_message)
+        elif msg_type == "debug":
+            logger.debug(formatted_message)
+        else:
+            print(formatted_message)
+
 
 
 def parse_transfac(file_path):
@@ -496,17 +536,10 @@ def compute_stats_from_files(pos_file, neg_file, score_col='weight', group_col='
     return result
 
 
-def run_command(command, verbose=0):
-    if verbose > 0:
-        print('Running command:\n\t{}'.format(command))
+def run_command(command):
+    log_message("debug", 3, f"Running command\n\t{format(command)}")
     result = subprocess.run(command, shell=True, text=True, capture_output=True)
     return result
-    # return {
-    #    'command': command,
-    #    'output': result.stdout,
-    #    'error': result.stderr,
-    #    'return_code': result.return_code
-    # }
 
 
 def scan_sequences(rsat_cmd, seq_file, label, matrix_file, bg_file,
@@ -520,16 +553,16 @@ def scan_sequences(rsat_cmd, seq_file, label, matrix_file, bg_file,
                 '-bgfile ' + bg_file +
                 ' -bg_pseudo 0.01 -pseudo 1 -decimals 1 -2str -return sites -uth rank_pm 1 -n score'
                 )
+    log_message("info", 3, f"Running scan command with matrix file {matrix_file} and label {label}")
     # Run the command
-    result = run_command(scan_cmd)
+    scan_result = run_command(scan_cmd)
 
     # Catch the stout in a buffer to enable post-processing with pl.read_csv
     # - filter out comment lines
     # - get the header
     # - select only required columns
-    csv_buffer = io.StringIO(result.stdout)
-
-    return pl.read_csv(
+    csv_buffer = io.StringIO(scan_result.stdout)
+    result = pl.read_csv(
         csv_buffer,
         comment_prefix=';',
         has_header=True,
@@ -540,7 +573,7 @@ def scan_sequences(rsat_cmd, seq_file, label, matrix_file, bg_file,
         pl.lit(label).alias('label'),
     ]).filter(pl.col(score_col) >= score_threshold)
 
-    # return result
+    return result
 
 
 def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_out_dir='results/matrices'):
@@ -565,20 +598,22 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_o
     """
     # Export this matrix in a separate file for scanning
     matrix_ac = matrix['metadata']['AC']
+    log_message("info", 3, f"Scoring matrix {matrix_ac}")
+
     single_matrix_file = matrix_out_dir + '/' + matrix_ac + '.tf'
-    # print('\t\tExporting matrix ' + matrix_ac + ' to file ' + single_matrix_file)
+    log_message("debug", 3, f"Exporting matrix {matrix_ac} to file {single_matrix_file}")
     export_pssms([matrix], single_matrix_file)
 
     # Compute performance statistics for this matrix
     # matrix_stat = score_matrix(rsat_cmd, seq_file_pos, seq_file_neg, single_matrix_file, bg_file)
-    print("\tScoring matrix: " + matrix_ac)
-    #print("\t\tScanning positive sequence file: " + seq_file_pos)
+    log_message("debug", 3, f"Scoring matrix {matrix_ac}")
+    log_message("debug", 4, f"Scanning positive sequence file: {seq_file_pos}")
     pos_hits = scan_sequences(rsat_cmd=rsat_cmd, seq_file=seq_file_pos, label=1,
                               matrix_file=single_matrix_file, bg_file=bg_file)
-    #print("\t\tScanning negative sequence file: " + seq_file_neg)
+    log_message("debug", 4, "Scanning negative sequence file: " + seq_file_neg)
     neg_hits = scan_sequences(rsat_cmd=rsat_cmd, seq_file=seq_file_neg, label=0,
                               matrix_file=single_matrix_file, bg_file=bg_file)
-    #print("\t\tComputing performance statistics (pos vs neg)")
+    log_message("debug", 4, "Computing performance statistics (pos vs neg)")
     matrix_stat = compute_stats(pos_data=pos_hits, neg_data=neg_hits, score_col='weight', group_col='ft_name')
 
     # Append classification performance scores to matrix comments
@@ -587,12 +622,12 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, matrix_o
         '    AuROC: ' + str(matrix_stat[matrix_ac]['AuROC']),
         '    AuPR: ' + str(matrix_stat[matrix_ac]['AuPR']),
     ]
-    #print('\t\t\tAuROC: ' + str(matrix_stat[matrix_ac]['AuROC']))
-    #print('\t\t\tAuPR: ' + str(matrix_stat[matrix_ac]['AuPR']))
+    log_message("info", 4, 'AuROC: ' + str(matrix_stat[matrix_ac]['AuROC']))
+    log_message("info",4, 'AuPR: ' + str(matrix_stat[matrix_ac]['AuPR']))
 
     # Export the scored matrix to a separate file
     scored_matrix_file = matrix_out_dir + '/' + matrix_ac + '_scored.tf'
-    #print('\t\tExporting scored matrix ' + matrix_ac + ' to file ' + scored_matrix_file)
+    log_message("debug", 4, 'Exporting scored matrix ' + matrix_ac + ' to file ' + scored_matrix_file)
     export_pssms([matrix], scored_matrix_file)
 
     # Return matrix and the associated statistics
@@ -662,7 +697,7 @@ def score_matrices(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file,
 
 
 def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, outfile_prefix,
-                      n_generations=10, k=5, n_children=10, n_threads=4, selection_score="AuROC"):
+                      n_generations=4, k=5, n_children=10, n_threads=4, selection_score="AuROC"):
     """
     Perform a genetic algorithm for optimizing Position-Specific Scoring Matrices (PSSMs).
 
@@ -725,9 +760,7 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
 
     # Evolution Process
     for generation in range(n_generations + 1):
-        print(f"Generation {generation}")
-        if (generation > 0):
-            print ("Breakpoint")
+        log_message('info', 1, f"Generation {generation}")
 
         # Score the matrices of the current generation
         matrix_scores = score_matrices(current_generation, rsat_cmd, seq_file_pos, seq_file_neg, bg_file,
@@ -735,7 +768,7 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
 
         # Export all the scored matrices of the current generation
         output_file = f"{outfile_prefix}_gen{generation}_scored.tf"
-        print(f"Saving all scored matrices to {output_file}")
+        log_message("info", 2, f"Saving all scored matrices to {output_file}")
         export_pssms(current_generation, output_file)
 
         # Sort matrices by decreasing score
@@ -752,12 +785,12 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
 
         # Export the k top-scoring scored matrices of the current generation
         output_file = f"{outfile_prefix}_gen{generation}_scored_{selection_score}_top{k}.tf"
-        print(f"Saving top {k} scored matrices to {output_file}")
+        log_message("info", 2, f"Saving top {k} scored matrices to {output_file}")
         export_pssms(top_matrices, output_file, out_format='transfac')
 
         # Create the next generation
         if generation < n_generations:
-            print("Cloning and mutating offspring matrices")
+            log_message("debug", 4, "Cloning and mutating offspring matrices")
             next_generation = []
             for i, matrix in enumerate(top_matrices):
                 mutated_matrices = clone_and_mutate_pssm(
@@ -775,11 +808,13 @@ def main():
     # ----------------------------------------------------------------
     # Parameters
     # ----------------------------------------------------------------
+    verbosity = 2
+    n_generations = 10  # number of generations
+    n_children = 10  # number fo children per parent at each generation
     min_percent = 5  # min percent change at each mutation
     max_percent = 30  # max percent change at each mutation
-    nb_generations = 2  # number of generations
+    n_threads = 10
     # selection_size = 5  # number of individuals to keep from each generation
-    n_children = 10  # number fo children per parent at each generation
     matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
     # matrix_file = 'data/matrices/test_matrix_1.tf'
     scan_file_pos = 'data/scans/CHS_GABPA_THC_0866_peakmo-clust-matrices_train.tsv'
@@ -795,6 +830,9 @@ def main():
                 'eeadcsiccompbio/rsat:{2} rsat').format(
         base_dir, base_dir, rsat_version)
 
+    # Set verbosity level
+    set_verbosity(verbosity)
+
     # create directory to export matrices with performance scores
     matrix_out_dir = 'results/matrices'
     if not os.path.exists(matrix_out_dir):
@@ -803,7 +841,7 @@ def main():
     # ----------------------------------------------------------------
     # Load original matrices
     # ----------------------------------------------------------------
-    print('\tLoading matrices from file: ' + matrix_file)
+    log_message("info", 1, f"Loading matrices from file{matrix_file}")
     matrices = parse_transfac(matrix_file)
 
     # ----------------------------------------------------------------
@@ -811,7 +849,7 @@ def main():
     # ----------------------------------------------------------------
     outfile_prefix = re.sub(r'.tf$', '', f'{matrix_out_dir}/{os.path.basename(matrix_file)}')
     genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, outfile_prefix,
-                      n_generations=10, k=5, n_children=10, n_threads=4)
+                      n_generations=n_generations, k=5, n_children=10, n_threads=n_threads)
 
     # ----------------------------------------------------------------
     # Score matrices according to their capability to discriminate positive from negative sequences
@@ -820,7 +858,7 @@ def main():
                                      n_threads=10)
     # Export matrix scores to JSON
     matrix_scores_json = matrix_out_dir + '/matrix_scores.json'
-    print("Saving scored matrices to file: " + matrix_scores_json)
+    log_message("info", 1, f"Saving scored matrices to file{matrix_scores_json}")
     with open(matrix_scores_json, 'w') as file:
         json.dump(scored_matrices, file, indent=4)
 
@@ -835,74 +873,6 @@ def main():
     # Export matrix scores to Excel
     matrix_scores_excel = matrix_out_dir + '/matrix_scores.xlsx'
     matrix_scores_df.to_excel(matrix_scores_excel, index=False)
-
-    # ----------------------------------------------------------------
-    # GA algorithm
-    # ----------------------------------------------------------------
-    collected_matrices = matrices
-    parent_matrices = matrices
-    print('Matrix proliferation over ' + str(nb_generations) + ' generations; '
-          + str(n_children), ' children per generation')
-
-    # Iterate over generations
-    for g in range(nb_generations):
-        gen_nb = g + 1
-        children_matrices = []
-        print("Generation: " + str(gen_nb))
-        print("\tparent matrices: " + str(len(parent_matrices)))
-        for m in range(len(parent_matrices)):
-            matrix = parent_matrices[m]
-            # Collect mutated matrices
-            mutated_matrices = clone_and_mutate_pssm(
-                matrix,
-                gen_nb=gen_nb,
-                matrix_nb=m + 1,
-                n_children=n_children,
-                min_percent=min_percent,
-                max_percent=max_percent,
-            )
-            children_matrices = children_matrices + mutated_matrices
-        print("\tchildren matrices: " + str(len(children_matrices)))
-        collected_matrices = collected_matrices + children_matrices
-        print("\tcollected matrices: " + str(len(collected_matrices)))
-
-        parent_matrices = children_matrices
-
-        # ----------------------------------------------------------------
-        # Export matrices collected at each generation
-        # ----------------------------------------------------------------
-        outfile = "collected_matrices_gen" + str(gen_nb) + ".tf"
-        print("\tExporting collected matrices to file\t" + outfile)
-        export_pssms(collected_matrices, outfile)
-
-    # ----------------------------------------------------------------
-    # Compute classification statistics per PSSM from two sequence scanning files (positive and negative data sets)
-    # ----------------------------------------------------------------
-    print("\tComputing performance statistics with compute_stats_from_files()")
-    stats_per_motif = compute_stats_from_files(scan_file_pos, scan_file_neg, 'weight', 'ft_name')
-    print(stats_per_motif)
-
-    # ----------------------------------------------------------------
-    # Convert the dictionary to a list of tuples and sort by AuROC in decreasing order
-    # ----------------------------------------------------------------
-    stats_per_motif_sorted = sorted(stats_per_motif.items(), key=lambda x: x[1]['AuROC'], reverse=True)
-
-    # Open the file in write mode
-    with open("stats_per_motif.tsv", mode='w', newline='') as file:
-        writer = csv.writer(file, delimiter='\t')
-
-        # Write the header
-        writer.writerow(["key", "AuROC", "roc_auc", "AuPR", "pr_auc"])
-
-        # Write the data
-        for key, values in stats_per_motif_sorted:
-            writer.writerow([
-                key,
-                f"{values['AuROC']:.4f}",
-                f"{values['roc_auc']:.4f}",
-                f"{values['AuPR']:.4f}",
-                f"{values['pr_auc']:.4f}"
-            ])
 
 
 if __name__ == '__main__':
