@@ -1,7 +1,6 @@
 import concurrent.futures
 import copy
 import io
-import json
 import math
 import os
 import random
@@ -159,7 +158,7 @@ def export_pssms(pssms, file_path, out_format='transfac'):
         - 'matrix': A Polars DataFrame with columns 'Position', 'A', 'C', 'G', and 'T', representing the
                     nucleotide frequencies at each position in the matrix.
 
-    file_path : str
+    file_path : str | LiteralString
         The path to the file where the exported matrices will be saved.
 
     out_format : str, optional
@@ -595,7 +594,8 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, tmp_dir=
     matrix_ac = matrix['metadata']['AC']
     log_message("info", 3, f"Scoring matrix {matrix_ac}")
 
-    single_matrix_file = os.path.join(tmp_dir, matrix_ac + '.tf')
+    # single_matrix_file = os.path.join(tmp_dir, matrix_ac + '.tf')
+    single_matrix_file = tmp_dir + '/' + matrix_ac + '.tf'
     log_message("debug", 3, f"Exporting matrix {matrix_ac} to file {single_matrix_file}")
     export_pssms([matrix], single_matrix_file)
 
@@ -786,15 +786,15 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
         # Create the next generation
         if generation < n_generations:
             log_message("debug", 4, "Cloning and mutating offspring matrices")
-        next_generation = []
-        for i, matrix in enumerate(top_matrices):
-            mutated_matrices = clone_and_mutate_pssm(
-                matrix, gen_nb=generation + 1, matrix_nb=i + 1, n_children=n_children)
-        next_generation = next_generation + mutated_matrices
-
-        # Prepare for the next iteration
-        # Aggregate top matrices to next generation because some of them might be better than their offsprint
-        current_generation = next_generation + top_matrices
+            # Prepare for the next iteration
+            # Include top matrices to next generation because some of them might be better than their offsprint
+            next_generation = []
+            next_generation.extend(top_matrices)
+            for i, matrix in enumerate(top_matrices):
+                mutated_matrices = clone_and_mutate_pssm(
+                    matrix, gen_nb=generation + 1, matrix_nb=i + 1, n_children=n_children)
+                next_generation.extend(mutated_matrices)
+            current_generation = next_generation
 
         # Return the final set of optimized matrices
     return current_generation
@@ -814,12 +814,9 @@ def main():
 
     # RSAT configuration
     rsat_version = '20240820'
-    base_dir = '/Users/jvanheld/no_backup/rsat_github/optimize-matrix-GA'
-    rsat_cmd = (
-        'docker run -v '
-        '{0}:/home/rsat_user '
-        '-v {1}/results:/home/rsat_user/out '
-        'eeadcsiccompbio/rsat:{2} rsat').format(base_dir, base_dir, rsat_version)
+    base_dir = os.getcwd()
+    rsat_cmd = (f"docker run -v {base_dir}:/home/rsat_user -v {os.path.join(base_dir, 'results')}:/home/rsat_user/out "
+                f"eeadcsiccompbio/rsat:{rsat_version} rsat")
     # rsat_cmd = '/Users/jvanheld/packages/rsat/bin/rsat'
 
     # Baackground model
@@ -827,7 +824,7 @@ def main():
 
     study_case = "GABPA"
 
-    if (study_case == "LEF1"):
+    if study_case == "LEF1":
         # Configuration for LEF1 study case
         matrix_file = \
             'data/matrices/LEF1_HTS_LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA_peakmo-clust-trimmed.tf'
@@ -835,7 +832,7 @@ def main():
         seq_file_neg = 'data/sequences/LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA_rand-loci_noN.fa'
     else:
         # Configuration for GABPA study case
-        matrix_file = 'data/matrices/test_matrix_1.tf'
+        # matrix_file = 'data/matrices/test_matrix_1.tf'
         matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
         seq_file_pos = 'data/sequences/THC_0866.fasta'
         seq_file_neg = 'data/sequences/THC_0866_rand-loci_noN.fa'
@@ -864,9 +861,11 @@ def main():
     # ----------------------------------------------------------------
     outfile_prefix = os.path.join(matrix_out_dir, re.sub(r'.tf$', '', os.path.basename(matrix_file)))
 
-    final_matrices = genetic_algorithm(
+    genetic_algorithm(
         matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, outfile_prefix=outfile_prefix, tmp_dir=tmp_dir,
         n_generations=n_generations, k=5, n_children=10, n_threads=n_threads)
+
+    log_message("info", 0, f"Job's done.")
 
     # # Export matrix scores to JSON
     # matrix_scores_json = outfile_prefix + '_matrix_scores.json'
