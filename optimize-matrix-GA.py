@@ -806,7 +806,7 @@ def main():
     # ----------------------------------------------------------------
     # Parameters
     # ----------------------------------------------------------------
-    verbosity = 2
+    verbosity = 3
     n_generations = 10  # number of generations
     # n_children = 10  # number fo children per parent at each generation
     # min_percent = 5  # min percent change at each mutation
@@ -817,26 +817,32 @@ def main():
     # RSAT configuration
     rsat_version = '20240820'
     base_dir = '/Users/jvanheld/no_backup/rsat_github/optimize-matrix-GA'
-    rsat_cmd = ('docker run -v '
-                '{0}:/home/rsat_user '
-                '-v {1}/results:/home/rsat_user/out '
-                'eeadcsiccompbio/rsat:{2} rsat').format(
-        base_dir, base_dir, rsat_version)
+    rsat_cmd = (
+        'docker run -v '
+        '{0}:/home/rsat_user '
+        '-v {1}/results:/home/rsat_user/out '
+        'eeadcsiccompbio/rsat:{2} rsat').format(base_dir, base_dir, rsat_version)
+    # rsat_cmd = '/Users/jvanheld/packages/rsat/bin/rsat'
 
     # Baackground model
     bg_file = 'data/bg_models/equiprobable_1str.tsv'
 
-    # Configuration for GABPA study case
-    # matrix_file = 'data/matrices/test_matrix_1.tf'
-    # matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
-    # seq_file_pos = 'data/sequences/THC_0866.fasta'
-    # seq_file_neg = 'data/sequences/THC_0866_rand-loci_noN.fa'
+    study_case = "GABPA"
 
-    # Configuration for LEF1 study case
-    matrix_file = \
-        'data/matrices/LEF1_HTS_LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA_peakmo-clust-trimmed.tf'
-    seq_file_pos = 'data/sequences/LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA.fasta'
-    seq_file_neg = 'data/sequences/LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA_rand-loci_noN.fa'
+    if (study_case == "LEF1"):
+        # Configuration for LEF1 study case
+        matrix_file = \
+            'data/matrices/LEF1_HTS_LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA_peakmo-clust-trimmed.tf'
+        seq_file_pos = 'data/sequences/LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA.fasta'
+        seq_file_neg = 'data/sequences/LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA_rand-loci_noN.fa'
+    else:
+        # Configuration for GABPA study case
+        matrix_file = 'data/matrices/test_matrix_1.tf'
+        matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
+        seq_file_pos = 'data/sequences/THC_0866.fasta'
+        seq_file_neg = 'data/sequences/THC_0866_rand-loci_noN.fa'
+
+
 
     # Set verbosity level
     set_verbosity(verbosity)
