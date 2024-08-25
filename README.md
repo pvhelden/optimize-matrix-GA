@@ -7,7 +7,7 @@ sequence set.
 
 A local instance of the software suite  Regulatory Sequence Analysis Tools (RSAT). 
 
-See <INSTALL.md> for the instlalation instructions. 
+See [INSTALL.md](INSTALL.md) for the instlalation instructions. 
 
 ## Usage example
 
