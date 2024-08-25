@@ -10,6 +10,7 @@ import subprocess
 import sys
 from datetime import datetime
 
+import polars
 import polars as pl
 from loguru import logger
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
@@ -385,6 +386,8 @@ def clone_and_mutate_pssm(matrix, gen_nb=1, matrix_nb=1, n_children=None, min_pe
         mutated_metadata = matrix['metadata'].copy()
         mutated_metadata['AC'] = f"{ac_prefix}_G{gen_nb}_M{matrix_nb}_C{child_nb}"
         mutated_metadata['ID'] = f"{id_prefix}_G{gen_nb}_M{matrix_nb}_C{child_nb}"
+        mutated_metadata['parent_AC'] = parent_ac
+        mutated_metadata['parent_ID'] = parent_id
         mutated_metadata['CC'] = parent_cc + [
             f"Generation number: {gen_nb}",
             f"  Parent matrix number: {matrix_nb}",
@@ -628,12 +631,12 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, tmp_dir=
     result = {
         "AC": matrix['metadata']['AC'],
         "ID": matrix['metadata']['ID'],
-        # "single_matrix_file": single_matrix_file,
-        # "scored_matrix_file": scored_matrix_file,
         "AuROC": matrix_stat[matrix_ac]['AuROC'],
         "roc_auc": matrix_stat[matrix_ac]['roc_auc'],
         "AuPR": matrix_stat[matrix_ac]['AuPR'],
         "pr_auc": matrix_stat[matrix_ac]['pr_auc'],
+        "parent_AC": matrix['metadata'].get('parent_AC'),  # returns parent_AC or None for the root matrices
+        "parent_ID": matrix['metadata'].get('parent_ID'),  # returns parent_ID or None for the root matrices
     }
     return result
 
@@ -688,7 +691,6 @@ def score_matrices(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file,
             results.append(future.result())
 
     return results
-
 
 
 def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, output_prefix, tmp_dir,
@@ -755,6 +757,14 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
     # Step 1: Clone the initial matrices (Generation 0)
     current_generation = copy.deepcopy(matrices)
 
+    # Define parent_AC and parent_ID attributes for the original matrices in order to have a value in the score tables
+    for matrix in current_generation:
+        matrix['metadata']['parent_AC'] = "Origin"
+        matrix['metadata']['parent_ID'] = "Origin"
+
+    ## Prepare a DataFrame to collect the score tables
+    score_table_all_generations = pl.DataFrame([])
+
     # Evolution Process
     for generation in range(generations + 1):
         log_message('info', 1, f"Generation {generation}")
@@ -775,8 +785,17 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
         # Convert the sorted list into a DataFrame for a tabular view
         sorted_score_table = pl.DataFrame(sorted_scores)
 
+        # Add a column with the generation number and reorder columns to place it in first position
+        sorted_score_table = sorted_score_table.with_columns(pl.lit(generation).alias('generation'))
+        sorted_score_table = sorted_score_table.select(['generation'] + sorted_score_table.columns[:-1])
+
         # Select the top-k scoring matrices
         top_ac_values = sorted_score_table.head(select)['AC'].to_list()
+
+        # Label with 1 the selected matrices, and with 0 the other ones in the sorted score table
+        sorted_score_table = sorted_score_table.with_columns([
+            pl.col("AC").is_in(top_ac_values).cast(pl.Int8).alias("selected")
+        ])
 
         # Filter the current_generation to keep only the matrices with top-k 'AC' values
         top_matrices = [entry for entry in current_generation if entry['metadata']['AC'] in top_ac_values]
@@ -785,6 +804,17 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
         output_file = f"{output_prefix}_gen{generation}_scored_{selection_score}_top{select}.tf"
         log_message("info", 2, f"Saving top {select} scored matrices to {output_file}")
         export_pssms(top_matrices, output_file, out_format='transfac')
+
+        # # Export matrix scores to TSV
+        matrix_scores_tsv = f"{output_prefix}_gen{generation}_score_table.tsv"
+        log_message("info", 2, f"Saving score table to {matrix_scores_tsv}")
+        sorted_score_table.write_csv(matrix_scores_tsv, separator='\t', include_header=True)
+
+        # Append the DataFrame to the list
+        # all_sorted_score_tables.append(sorted_score_table)
+
+        # Create a DataFrame aggregating the score tables of all generations
+        score_table_all_generations = pl.concat([score_table_all_generations, sorted_score_table])
 
         # Create the next generation
         if generation < generations:
@@ -799,8 +829,14 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
                 next_generation.extend(mutated_matrices)
             current_generation = next_generation
 
-        # Return the final set of optimized matrices
-    return current_generation
+    # Export aggregated score table to TSV
+    log_message("info", 1, f"All generations completed")
+    matrix_scores_tsv = f"{output_prefix}_gen{0}-{generations}_score_table.tsv"
+    log_message("info", 2, f"Saving score table to {matrix_scores_tsv}")
+    score_table_all_generations.write_csv(matrix_scores_tsv, separator='\t', include_header=True)
+
+    # Return the final set of optimized matrices + score table for all the generations
+    return {"matrices": current_generation, "score_table": score_table_all_generations}
 
 
 def main(verbosity, threads, generations, children, select,
@@ -809,34 +845,8 @@ def main(verbosity, threads, generations, children, select,
     # Parameters
     # ----------------------------------------------------------------
 
-    # min_percent = 5  # min percent change at each mutation
-    # max_percent = 30  # max percent change at each mutation
-
-    # RSAT configuration
-    # rsat_version = '20240820'
-    # base_dir = os.getcwd()
-    # rsat_cmd = (f"docker run -v {base_dir}:/home/rsat_user -v {os.path.join(base_dir, 'results')}:/home/rsat_user/out "
-    #            f"eeadcsiccompbio/rsat:{rsat_version} rsat")
-    # rsat_cmd = '/Users/jvanheld/packages/rsat/bin/rsat'
-
-    # study_case = "GABPA"
-
-    # if study_case == "LEF1":
-    #     # Configuration for LEF1 study case
-    #     matrix_file = \
-    #         'data/matrices/LEF1_HTS_LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA_peakmo-clust-trimmed.tf'
-    #     seq_file_pos = 'data/sequences/LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA.fasta'
-    #     seq_file_neg = 'data/sequences/LEF1_R0_C1_lf5ACGACGCTCTTCCGATCTAT_rf3AGCCTCAGATCGGAAGAGCA_rand-loci_noN.fa'
-    # else:
-    #     # Configuration for GABPA study case
-    #     # matrix_file = 'data/matrices/test_matrix_1.tf'
-    #     matrix_file = 'data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf'
-    #     seq_file_pos = 'data/sequences/THC_0866.fasta'
-    #     seq_file_neg = 'data/sequences/THC_0866_rand-loci_noN.fa'
-
     # Set verbosity level
     set_verbosity(verbosity)
-
 
     # Create output directory (dirname of output prefix) if it does not exist
     output_dir = os.path.dirname(output_prefix)
@@ -870,11 +880,7 @@ def main(verbosity, threads, generations, children, select,
     # log_message("info", 1, f"Saving scored matrices to file {matrix_scores_json}")
     # with open(matrix_scores_json, 'w') as file:
     #     json.dump(final_matrices, file, indent=4)
-    #
-    # # Reformat the results to a table
-    # # Convert to DataFrame
-    # matrix_scores_df = pl.DataFrame(final_matrices)
-    #
+
     # # Export matrix scores to TSV
     # matrix_scores_tsv = outfile_prefix + '_matrix_scores.tsv'
     # matrix_scores_df.write_csv(matrix_scores_tsv, separator='\t')
