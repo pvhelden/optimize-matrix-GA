@@ -10,11 +10,15 @@ A local instance of the software suite  Regulatory Sequence Analysis Tools (RSAT
 ### RSAT docker installation
 
 The RSAT suite can be installed in various ways (https://rsa-tools.github.io/installing-RSAT/), but we strongly reecommend the docker container, which simlpifies the installation. 
-The  RSAT version should be 20240820 or ulterior. 
 
 ```docker pull eeadcsiccompbio/rsat:20240820```
 
+**Note**: the  RSAT version should be 20240820 or ulterior. 
+
 ### RSAT docker configuration
+
+Docker should be configured to let it access in read/write mode the directory where we will run the analyses. 
+Here is an example of configuration. 
 
 ```
 export RSAT_VERSION=20240820 # use this version or a later one
@@ -27,6 +31,7 @@ $RSAT_CMD -h # print rsat help message
 
 ## Usage example
 
+The local python installation should contain all the required libraries. 
 
 ```
 export PYTHON_PATH=venv/Downloads/bin/python # python path should be adapted to your local settings
