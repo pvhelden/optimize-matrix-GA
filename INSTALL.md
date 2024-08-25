@@ -1,3 +1,25 @@
+## Installation
+
+```
+git clone https://github.com/pvhelden/optimize-matrix-GA.git
+cd optimize-matrix-GA
+```
+
+## Dependencies
+
+### python and libraries
+
+Minimal required python version 
+
+The required python libraries are specified in the file requirements.txt
+
+```
+pip install virtualenv # if you don't already have virtualenv installed
+virtualenv venv # to create your new environment (called 'venv' here)
+source venv/bin/activate # to enter the virtual environment
+pip install -r requirements.txt # to install the requirements in the current environment
+```
+
 ### RSAT docker installation
 
 The RSAT suite can be installed in various ways (https://rsa-tools.github.io/installing-RSAT/), but we strongly reecommend the docker container, which simlpifies the installation. 
