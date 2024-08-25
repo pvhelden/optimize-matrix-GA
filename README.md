@@ -15,8 +15,12 @@ The local python installation should contain all the required libraries.
 
 ```
 export PYTHON_PATH=venv/Downloads/bin/python # python path should be adapted to your local settings
-$PYTHON_PATH optimize-matrix-GA.py -v 3 -t 10 -g 5 -c 5 -s 5 \\
-  -m data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf \\
-  -p data/sequences/THC_0866.fasta -n data/sequences/THC_0866_rand-loci_noN.fa \\
-  -b data/bg_models/equiprobable_1str.tsv -r "${RSAT_CMD}"
+$PYTHON_PATH optimize-matrix-GA.py -v 3 -t 10 -g 5 -c 5 -s 5 \
+  -m data/matrices/PRDM5_GHTS_YWK_B_AffSeq_B1_PRDM5.C2_peakmo-clust-trimmed.tf \
+  -p data/sequences/YWK_B_AffSeq_B1_PRDM5.C2.fasta \
+  -n data/sequences/YWK_B_AffSeq_B1_PRDM5.C2_rand-loci.fa \
+  -b data/bg_models/equiprobable_1str.tsv \
+  -r "${RSAT_CMD}" \
+  -o results/optimized_matrices/PRDM5_GHTS_YWK_B_AffSeq_B1_PRDM5.C2_peakmo-clust-trimmed/PRDM5_GHTS_YWK_B_AffSeq_B1_PRDM5.C2_peakmo-clust-trimmed_
 ```
+
