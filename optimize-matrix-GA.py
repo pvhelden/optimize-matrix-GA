@@ -801,7 +801,7 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
     return current_generation
 
 
-def main(verbosity, threads, generations, children, select, matrices, positives, negatives, background):
+def main(verbosity, threads, generations, children, select, matrices, positives, negatives, background, rsat_cmd):
     # ----------------------------------------------------------------
     # Parameters
     # ----------------------------------------------------------------
@@ -815,6 +815,7 @@ def main(verbosity, threads, generations, children, select, matrices, positives,
     rsat_cmd = (f"docker run -v {base_dir}:/home/rsat_user -v {os.path.join(base_dir, 'results')}:/home/rsat_user/out "
                 f"eeadcsiccompbio/rsat:{rsat_version} rsat")
     # rsat_cmd = '/Users/jvanheld/packages/rsat/bin/rsat'
+
 
     # study_case = "GABPA"
 
@@ -879,23 +880,42 @@ def main(verbosity, threads, generations, children, select, matrices, positives,
 if __name__ == '__main__':
     print(*sys.argv)
     parser = argparse.ArgumentParser(
-        description='Optimize position specific scoring matrices according to their capability to discriminate '
-                    'a positive from a negative sequence set.',
+        description="""Optimize position specific scoring matrices according to their capability to discriminate 
+                    a positive from a negative sequence set. Requires a local instance of the C program 
+                    matrix-scan-quick, which is part of the software suite  Regulatory Sequence Analysis Tools (RSAT). 
+                    The RSAT suite can be used as docker container (docker pull eeadcsiccompbio/rsat:20240820). 
+                    Alternatively, the program matrix-scan-quick can be installed from RSAT distribition 
+                    (https://github.com/rsa-tools/rsat-code/tree/master/contrib/matrix-scan-quick).    
+                    
+                    """,
     )
-    parser.add_argument('-v', '--verbosity', type=int, default=1, help='Verbosity level (int)')
-    parser.add_argument('-t', '--threads', type=int, default=1, help='Number of threads (int)')
-    parser.add_argument('-g', '--generations', type=int, default=2, help='Number of generations (int)')
-    parser.add_argument('-c', '--children', type=int, default=10,
-                        help='Number of children per generation (int)')
-    parser.add_argument('-s', '--select', type=int, default=5,
-                        help='Number of top matrices to select after each generation (int)')
-    parser.add_argument('-m', '--matrices', type=str, help='Transfac formatted matrix file path (str)')
-    parser.add_argument('-p', '--positives', type=str,
-                        help='Fasta formatted file containing positive sequences (str)')
-    parser.add_argument('-n', '--negatives', type=str,
-                        help='Fasta formatted file containing negative sequences (str)')
-    parser.add_argument('-b', '--background', type=str,
-                        help='rsat oligo-analysis formatted background model file (str)')
+    parser.add_argument(
+        '-v', '--verbosity', type=int, default=1, help='Verbosity level (int)')
+    parser.add_argument(
+        '-t', '--threads', type=int, default=1, help='Number of threads (int)')
+    parser.add_argument(
+        '-g', '--generations', type=int, default=2, help='Number of generations (int)')
+    parser.add_argument(
+        '-c', '--children', type=int, default=10,
+        help='Number of children per generation (int)')
+    parser.add_argument(
+        '-s', '--select', type=int, default=5,
+        help='Number of top matrices to select after each generation (int)')
+    parser.add_argument(
+        '-m', '--matrices', type=str, required=True,
+        help='Transfac formatted matrix file path (str)')
+    parser.add_argument(
+        '-p', '--positives', type=str, required=True,
+        help='Fasta formatted file containing positive sequences (str)')
+    parser.add_argument(
+        '-n', '--negatives', type=str, required=True,
+        help='Fasta formatted file containing negative sequences (str)')
+    parser.add_argument(
+        '-b', '--background', type=str, required=True,
+        help='rsat oligo-analysis formatted background model file (str)')
+    parser.add_argument(
+        '-r', '--rsat_cmd', type=str, required=True,
+        help='RSAT command, either a full path or a container (docker, Apptainer) with parameters (str)')
     args = parser.parse_args()
     main(args.verbosity, args.threads, args.generations, args.children, args.select,
-         args.matrices, args.positives, args.negatives, args.background)
+         args.matrices, args.positives, args.negatives, args.background, args.rsat_cmd)
