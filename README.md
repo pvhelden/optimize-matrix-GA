@@ -5,12 +5,12 @@ sequence set.
 
 ## Requirements
 
-A local instance of the software suite  Regulatory Sequence Analysis Tools (RSAT), which can be installed
-in various ways (https://rsa-tools.github.io/installing-RSAT/). 
+A local instance of the software suite  Regulatory Sequence Analysis Tools (RSAT). 
 
 ### RSAT docker installation
 
-RSAT version should be 20240820 or ulterior. 
+The RSAT suite can be installed in various ways (https://rsa-tools.github.io/installing-RSAT/), but we strongly reecommend the docker container, which simlpifies the installation. 
+The  RSAT version should be 20240820 or ulterior. 
 
 ```docker pull eeadcsiccompbio/rsat:20240820```
 
