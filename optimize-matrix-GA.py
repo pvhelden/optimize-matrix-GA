@@ -532,7 +532,7 @@ def compute_stats_from_files(pos_file, neg_file, score_col='weight', group_col='
 
 
 def run_command(command):
-    log_message("debug", 3, f"Running command\n\t{format(command)}")
+    log_message("info", 4, f"Running command\n\t{format(command)}")
     result = subprocess.run(command, shell=True, text=True, capture_output=True)
     return result
 
@@ -598,18 +598,18 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, tmp_dir=
 
     # single_matrix_file = os.path.join(tmp_dir, matrix_ac + '.tf')
     single_matrix_file = tmp_dir + '/' + matrix_ac + '.tf'
-    log_message("debug", 4, f"Exporting matrix {matrix_ac} to file {single_matrix_file}")
+    log_message("info", 4, f"Exporting matrix {matrix_ac} to file {single_matrix_file}")
     export_pssms([matrix], single_matrix_file)
 
     # Compute performance statistics for this matrix
     # matrix_stat = score_matrix(rsat_cmd, seq_file_pos, seq_file_neg, single_matrix_file, bg_file)
-    log_message("debug", 4, f"Scanning positive sequence file: {seq_file_pos}")
+    log_message("info", 4, f"Scanning positive sequence file: {seq_file_pos}")
     pos_hits = scan_sequences(rsat_cmd=rsat_cmd, seq_file=seq_file_pos, label=1,
                               matrix_file=single_matrix_file, bg_file=bg_file)
-    log_message("debug", 4, "Scanning negative sequence file: " + seq_file_neg)
+    log_message("info", 4, "Scanning negative sequence file: " + seq_file_neg)
     neg_hits = scan_sequences(rsat_cmd=rsat_cmd, seq_file=seq_file_neg, label=0,
                               matrix_file=single_matrix_file, bg_file=bg_file)
-    log_message("debug", 4, "Computing performance statistics (pos vs neg)")
+    log_message("info", 4, "Computing performance statistics (pos vs neg)")
     matrix_stat = compute_stats(pos_data=pos_hits, neg_data=neg_hits, score_col='weight', group_col='ft_name')
 
     # Append classification performance scores to matrix comments
