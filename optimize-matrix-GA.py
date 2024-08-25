@@ -690,7 +690,8 @@ def score_matrices(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file,
     return results
 
 
-def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, outfile_prefix, tmp_dir,
+
+def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, output_prefix, tmp_dir,
                       generations=4, select=5, children=10, threads=4, selection_score="AuROC"):
     """
     Perform a genetic algorithm for optimizing Position-Specific Scoring Matrices (PSSMs).
@@ -763,7 +764,7 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
                                        tmp_dir=tmp_dir, n_threads=threads)
 
         # Export all the scored matrices of the current generation
-        output_file = f"{outfile_prefix}_gen{generation}_scored.tf"
+        output_file = f"{output_prefix}_gen{generation}_scored.tf"
         log_message("info", 2, f"Saving {len(current_generation)} scored matrices to {output_file}")
         export_pssms(current_generation, output_file)
 
@@ -780,7 +781,7 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
         top_matrices = [entry for entry in current_generation if entry['metadata']['AC'] in top_ac_values]
 
         # Export the k top-scoring scored matrices of the current generation
-        output_file = f"{outfile_prefix}_gen{generation}_scored_{selection_score}_top{select}.tf"
+        output_file = f"{output_prefix}_gen{generation}_scored_{selection_score}_top{select}.tf"
         log_message("info", 2, f"Saving top {select} scored matrices to {output_file}")
         export_pssms(top_matrices, output_file, out_format='transfac')
 
@@ -801,7 +802,8 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
     return current_generation
 
 
-def main(verbosity, threads, generations, children, select, matrices, positives, negatives, background, rsat_cmd):
+def main(verbosity, threads, generations, children, select,
+         matrices, positives, negatives, background, rsat_cmd, output_prefix):
     # ----------------------------------------------------------------
     # Parameters
     # ----------------------------------------------------------------
@@ -839,10 +841,10 @@ def main(verbosity, threads, generations, children, select, matrices, positives,
     if not os.path.exists(tmp_dir):
         os.makedirs(tmp_dir)
 
-    # Create directory to export matrices with performance scores
-    matrix_out_dir = 'results/matrices'
-    if not os.path.exists(matrix_out_dir):
-        os.makedirs(matrix_out_dir)
+    # Create output directory (dirname of output prefix) if it does not exist
+    output_dir = os.path.dirname(output_prefix)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
     # ----------------------------------------------------------------
     # Load original matrices
@@ -853,10 +855,9 @@ def main(verbosity, threads, generations, children, select, matrices, positives,
     # ----------------------------------------------------------------
     # Run genetic algorithm to optimize the matrices
     # ----------------------------------------------------------------
-    outfile_prefix = os.path.join(matrix_out_dir, re.sub(r'.tf$', '', os.path.basename(matrices)))
 
     genetic_algorithm(
-        parsed_matrices, rsat_cmd, positives, negatives, background, outfile_prefix=outfile_prefix, tmp_dir=tmp_dir,
+        parsed_matrices, rsat_cmd, positives, negatives, background, output_prefix=output_prefix, tmp_dir=tmp_dir,
         generations=generations, select=select, children=children, threads=threads)
 
     log_message("info", 0, f"Job's done.")
@@ -924,19 +925,22 @@ Usage example:
         help='Number of top matrices to select after each generation (int)')
     parser.add_argument(
         '-m', '--matrices', type=str, required=True,
-        help='Transfac formatted matrix file path (str)')
+        help='Transfac-formatted matrix file path (str)')
     parser.add_argument(
         '-p', '--positives', type=str, required=True,
-        help='Fasta formatted file containing positive sequences (str)')
+        help='fasta-formatted file containing positive sequences (str)')
     parser.add_argument(
         '-n', '--negatives', type=str, required=True,
-        help='Fasta formatted file containing negative sequences (str)')
+        help='fasta-formatted file containing negative sequences (str)')
     parser.add_argument(
         '-b', '--background', type=str, required=True,
         help='rsat oligo-analysis formatted background model file (str)')
     parser.add_argument(
         '-r', '--rsat_cmd', type=str, required=True,
         help='RSAT command, either a full path or a container (docker, Apptainer) with parameters (str)')
+    parser.add_argument(
+        '-o', '--output_prefix', type=str, required=True,
+        help='Output prefix. It can contain a folder path, which is created if not existing (str)')
     args = parser.parse_args()
     main(args.verbosity, args.threads, args.generations, args.children, args.select,
-         args.matrices, args.positives, args.negatives, args.background, args.rsat_cmd)
+         args.matrices, args.positives, args.negatives, args.background, args.rsat_cmd, args.output_prefix)
