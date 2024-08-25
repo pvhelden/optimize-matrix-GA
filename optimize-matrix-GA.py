@@ -810,12 +810,11 @@ def main(verbosity, threads, generations, children, select, matrices, positives,
     # max_percent = 30  # max percent change at each mutation
 
     # RSAT configuration
-    rsat_version = '20240820'
-    base_dir = os.getcwd()
-    rsat_cmd = (f"docker run -v {base_dir}:/home/rsat_user -v {os.path.join(base_dir, 'results')}:/home/rsat_user/out "
-                f"eeadcsiccompbio/rsat:{rsat_version} rsat")
+    # rsat_version = '20240820'
+    # base_dir = os.getcwd()
+    # rsat_cmd = (f"docker run -v {base_dir}:/home/rsat_user -v {os.path.join(base_dir, 'results')}:/home/rsat_user/out "
+    #            f"eeadcsiccompbio/rsat:{rsat_version} rsat")
     # rsat_cmd = '/Users/jvanheld/packages/rsat/bin/rsat'
-
 
     # study_case = "GABPA"
 
@@ -879,16 +878,38 @@ def main(verbosity, threads, generations, children, select, matrices, positives,
 
 if __name__ == '__main__':
     print(*sys.argv)
-    parser = argparse.ArgumentParser(
-        description="""Optimize position specific scoring matrices according to their capability to discriminate 
-                    a positive from a negative sequence set. Requires a local instance of the C program 
-                    matrix-scan-quick, which is part of the software suite  Regulatory Sequence Analysis Tools (RSAT). 
-                    The RSAT suite can be used as docker container (docker pull eeadcsiccompbio/rsat:20240820). 
-                    Alternatively, the program matrix-scan-quick can be installed from RSAT distribition 
-                    (https://github.com/rsa-tools/rsat-code/tree/master/contrib/matrix-scan-quick).    
-                    
-                    """,
-    )
+    description_text = """\
+Optimize position specific scoring matrices according to their capability to discriminate a positive from a negative 
+sequence set. 
+
+Requirement: a local instance of the software suite  Regulatory Sequence Analysis Tools (RSAT), which can be installed
+in various ways (https://rsa-tools.github.io/installing-RSAT/). 
+
+RSAT docker installation:
+
+    docker pull eeadcsiccompbio/rsat:20240820 
+
+RSAT docker configuration:
+
+    export RSAT_VERSION=20240820 # use this version or a later one
+    export BASE_DIR=$PWD # base directory required for docker to access the data files
+    mkdir -p $BASE_DIR
+    export RSAT_CMD="docker run -v ${BASE_DIR}:/home/rsat_user -v ${BASE_DIR}/results:/home/rsat_user/out \\
+        eeadcsiccompbio/rsat:${RSAT_VERSION} rsat"
+    echo ${RSAT_CMD} # check the format
+    $RSAT_CMD -h # print rsat help message
+
+Usage example: 
+
+    export PYTHON_PATH=venv/Downloads/bin/python # python path should be adapted to your local settings
+    $PYTHON_PATH optimize-matrix-GA.py -v 3 -t 10 -g 5 -c 5 -s 5 \\
+      -m data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf \\
+      -p data/sequences/THC_0866.fasta -n data/sequences/THC_0866_rand-loci_noN.fa \\
+      -b data/bg_models/equiprobable_1str.tsv -r "${RSAT_CMD}"
+
+"""
+    parser = argparse.ArgumentParser(description=description_text, formatter_class=argparse.RawDescriptionHelpFormatter)
+
     parser.add_argument(
         '-v', '--verbosity', type=int, default=1, help='Verbosity level (int)')
     parser.add_argument(
