@@ -8,6 +8,7 @@ import random
 import re
 import subprocess
 import sys
+from datetime import datetime
 
 import polars as pl
 from loguru import logger
@@ -547,7 +548,7 @@ def scan_sequences(rsat_cmd, seq_file, label, matrix_file, bg_file,
                 '-bgfile ' + bg_file +
                 ' -bg_pseudo 0.01 -pseudo 1 -decimals 1 -2str -return sites -uth rank_pm 1 -n score'
                 )
-    log_message("info", 3, f"Running scan command with matrix file {matrix_file} and label {label}")
+    log_message("info", 4, f"Running scan command with matrix file {matrix_file} and label {label}")
     # Run the command
     scan_result = run_command(scan_cmd)
 
@@ -597,12 +598,11 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, tmp_dir=
 
     # single_matrix_file = os.path.join(tmp_dir, matrix_ac + '.tf')
     single_matrix_file = tmp_dir + '/' + matrix_ac + '.tf'
-    log_message("debug", 3, f"Exporting matrix {matrix_ac} to file {single_matrix_file}")
+    log_message("debug", 4, f"Exporting matrix {matrix_ac} to file {single_matrix_file}")
     export_pssms([matrix], single_matrix_file)
 
     # Compute performance statistics for this matrix
     # matrix_stat = score_matrix(rsat_cmd, seq_file_pos, seq_file_neg, single_matrix_file, bg_file)
-    log_message("debug", 3, f"Scoring matrix {matrix_ac}")
     log_message("debug", 4, f"Scanning positive sequence file: {seq_file_pos}")
     pos_hits = scan_sequences(rsat_cmd=rsat_cmd, seq_file=seq_file_pos, label=1,
                               matrix_file=single_matrix_file, bg_file=bg_file)
@@ -760,6 +760,7 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
         log_message('info', 1, f"Generation {generation}")
 
         # Score the matrices of the current generation
+        log_message('info', 2, f"scoring {len(current_generation)} matrices")
         matrix_scores = score_matrices(current_generation, rsat_cmd, seq_file_pos, seq_file_neg, bg_file,
                                        tmp_dir=tmp_dir, n_threads=threads)
 
@@ -787,7 +788,7 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
 
         # Create the next generation
         if generation < generations:
-            log_message("debug", 4, "Cloning and mutating offspring matrices")
+            log_message("info", 2, "Cloning and mutating offspring matrices")
             # Prepare for the next iteration
             # Include top matrices to next generation because some of them might be better than their offsprint
             next_generation = []
@@ -836,15 +837,17 @@ def main(verbosity, threads, generations, children, select,
     # Set verbosity level
     set_verbosity(verbosity)
 
-    # Create directory for temporary files
-    tmp_dir = 'tmp'
-    if not os.path.exists(tmp_dir):
-        os.makedirs(tmp_dir)
 
     # Create output directory (dirname of output prefix) if it does not exist
     output_dir = os.path.dirname(output_prefix)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
+
+    # Create directory for temporary files
+    tmp_dir = os.path.join(output_dir, "tmp", datetime.now().strftime("%Y-%m-%d_%H%M%S"))
+    if not os.path.exists(tmp_dir):
+        log_message("info", 2, f"Creating temporary directory {tmp_dir}")
+        os.makedirs(tmp_dir)
 
     # ----------------------------------------------------------------
     # Load original matrices
