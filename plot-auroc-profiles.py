@@ -100,10 +100,16 @@ def plot_tree(input_file, output_file, file_format, title, subtitle, min_y=None,
 
 def main():
     parser = argparse.ArgumentParser(
-        description=(
-            "Generates a plot of nodes from a tree-like data structure with their parent-child relationships. "
-            "Input file should be a tab-separated text file with columns: generation, AC (accession of the current node), "
-            "AuROC (area under the receiving operating characteristic), and parent_AC (AC of the parent node)."
+        description=("""
+            Generates a plot of nodes from a tree-like data structure with their parent-child relationships.
+            
+            Input file should be a tab-separated text file including at least the following columns: 
+            - generation (int)
+            - AC (str): accession of the current node
+            - AuROC (float): area under the receiving operating characteristic 
+            - parent_AC (strr): AC of the parent node
+            - selected (1 or 0): flag indicating whether or not the node is selected for next generation
+            """
         )
     )
 
