@@ -1,3 +1,5 @@
+import sys
+
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -99,19 +101,32 @@ def plot_tree(input_file, output_file, file_format, title, subtitle, min_y=None,
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description=("""
-            Generates a plot of nodes from a tree-like data structure with their parent-child relationships.
-            
-            Input file should be a tab-separated text file including at least the following columns: 
-            - generation (int)
-            - AC (str): accession of the current node
-            - AuROC (float): area under the receiving operating characteristic 
-            - parent_AC (strr): AC of the parent node
-            - selected (1 or 0): flag indicating whether or not the node is selected for next generation
-            """
-        )
-    )
+    description_text = """\
+Generate a plot of nodes from a tree-like data structure with their parent-child relationships.
+
+Input file should be a tab-separated text file including at least the following columns: 
+    - generation (int)
+    - AC (str): accession of the current node
+    - AuROC (float): area under the receiving operating characteristic 
+    - parent_AC (strr): AC of the parent node
+    - selected (1 or 0): flag indicating whether or not the node is selected for next generation
+
+Example:
+
+
+DIR=data/score_tables/ 
+SCORE_TABLE=${DIR}/PRDM5_GHTS_YWK_B_AffSeq_B1_PRDM5.C2_clust-trimmed-matrices_train-vs-rand_gen0-20_score_table.tsv
+AUROC_PLOT=${DIR}/PRDM5_GHTS_YWK_B_AffSeq_B1_PRDM5.C2_clust-trimmed-matrices_train-vs-rand_gen0-20_auroc-profiles.pdf
+
+venv/Downloads/bin/python plot-auroc-profiles.py \\
+    -v 1 -i ${SCORE_TABLE} \\
+    -t PRDM5_GHTS_YWK_B_AffSeq_B1_PRDM5.C2_clust-trimmed-matrices  -s train-versus-rand \\
+    --y_step1 0.1 --y_step2 0.01 \\
+    --min_y 0.0 --max_y 1.0 \\
+    --xsize 16 --ysize 8 -f pdf \\
+    -o ${AUROC_PLOT} 
+"""
+    parser = argparse.ArgumentParser(description=description_text, formatter_class=argparse.RawDescriptionHelpFormatter)
 
     parser.add_argument('-i', '--input_file', required=True,
                         help='Input file. TSV file with columns: generation, AC, AuROC, parent_AC.')
@@ -135,21 +150,7 @@ def main():
     args = parser.parse_args()
 
     if args.verbosity > 0:
-        print(f"Running command: python plot-auroc-profiles.py "
-              f"-i {args.input_file} "
-              f"-o {args.output_file} "
-              f"-f {args.file_format} "
-              f"-t \"{args.title}\" "
-              f"-s \"{args.subtitle}\" "
-              f"{'--min_y ' + str(args.min_y) if args.min_y is not None else ''} "
-              f"{'--max_y ' + str(args.max_y) if args.max_y is not None else ''} "
-              f"{'--min_g ' + str(args.min_g) if args.min_g is not None else ''} "
-              f"{'--max_g ' + str(args.max_g) if args.max_g is not None else ''} "
-              f"--y_step1 {args.y_step1} "
-              f"--y_step2 {args.y_step2} "
-              f"--xsize {args.xsize} "
-              f"--ysize {args.ysize} "
-              f"--dpi {args.dpi}")
+        print(*sys.argv)
 
     plot_tree(
         args.input_file,
