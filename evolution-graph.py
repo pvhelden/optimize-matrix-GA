@@ -41,9 +41,11 @@ def plot_tree(input_file, output_file, file_format, title, subtitle):
     # Set labels and title
     plt.xlabel('Generation')
     plt.ylabel('AuROC')
-    plt.title(title)
+    plt.title(title, pad=20)  # Main title
+
     if subtitle:
-        plt.suptitle(subtitle, y=0.95, fontsize=10)
+        # Place the subtitle directly below the title
+        plt.text(0.5, 0.97, subtitle, ha='center', va='top', fontsize=10, transform=plt.gcf().transFigure)
 
     # Set x-ticks to be integers and remove decimals
     plt.xticks(ticks=range(int(min(x_values)), int(max(x_values)) + 1))
@@ -59,8 +61,23 @@ def plot_tree(input_file, output_file, file_format, title, subtitle):
     plt.close()
 
 def main():
-    # Set up argument parsing
-    parser = argparse.ArgumentParser(description="Plot a tree structure from a TSV file and save it as an image.")
+    # Set up argument parsing with a detailed description
+    description = """
+    This script generates a tree plot from a tab-separated values (TSV) file describing 
+    parent-child relationships between nodes. Each node has an associated generation 
+    and an AuROC (Area Under the Receiver Operating Characteristic) score.
+
+    The input TSV file should have the following columns:
+        - generation: The generation or level of the node in the tree.
+        - AC: The accession or identifier of the current node.
+        - AuROC: The AuROC score associated with the node.
+        - parent_AC: The accession of the parent node.
+
+    Example usage:
+        python evolution-graph.py -i data.tsv -o output_graph.png -f png -t "Tree Structure" -s "Graph Subtitle"
+    """
+
+    parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawTextHelpFormatter)
 
     parser.add_argument('-i', '--input_file', required=True, help="Path to the input TSV file.")
     parser.add_argument('-o', '--output_file', required=True, help="Full path of the output file.")
