@@ -9,7 +9,7 @@ cd optimize-matrix-GA
 
 ### python and libraries
 
-Minimal required python version 
+Minimal required python version
 
 The required python libraries are specified in the file requirements.txt
 
@@ -22,16 +22,17 @@ pip install -r requirements.txt # to install the requirements in the current env
 
 ### RSAT docker installation
 
-The RSAT suite can be installed in various ways (https://rsa-tools.github.io/installing-RSAT/), but we strongly reecommend the docker container, which simlpifies the installation. 
+The RSAT suite can be installed in various ways (https://rsa-tools.github.io/installing-RSAT/), but we strongly
+recommend the docker container, which simlpifies the installation.
 
 ```docker pull eeadcsiccompbio/rsat:20240820```
 
-**Note**: the  RSAT version should be 20240820 or ulterior. 
+**Note**: the RSAT version should be 20240820 or ulterior.
 
 ### RSAT docker configuration
 
-Docker should be configured to let it access in read/write mode the directory where we will run the analyses. 
-Here is an example of configuration. 
+Docker should be configured to let it access in read/write mode the directory where we will run the analyses.
+Here is an example of configuration.
 
 ```
 export RSAT_VERSION=20240820 # use this version or a later one
