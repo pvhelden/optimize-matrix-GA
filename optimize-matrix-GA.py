@@ -10,7 +10,6 @@ import subprocess
 import sys
 from datetime import datetime
 
-import polars
 import polars as pl
 from loguru import logger
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score

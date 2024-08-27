@@ -4,13 +4,13 @@ import sys
 
 import matplotlib.pyplot as plt
 import networkx as nx
-import pandas as pd
+import polars as pl
 
 
 def plot_tree(input_file, output_file, file_format, title, subtitle, min_y=None, max_y=None, min_g=None, max_g=None,
               y_step1=0.1, y_step2=0.05, xsize=12, ysize=8, dpi=100):
     # Load the data
-    data = pd.read_csv(input_file, sep='\t')
+    data = pl.read_csv(input_file, separator='\t')
 
     # Filter data based on generation range if provided
     if min_g is not None:
