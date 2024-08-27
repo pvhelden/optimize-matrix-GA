@@ -1,10 +1,10 @@
-import sys
-
-import pandas as pd
-import networkx as nx
-import matplotlib.pyplot as plt
 import argparse
 import os
+import sys
+
+import matplotlib.pyplot as plt
+import networkx as nx
+import pandas as pd
 
 
 def plot_tree(input_file, output_file, file_format, title, subtitle, min_y=None, max_y=None, min_g=None, max_g=None,
@@ -124,7 +124,8 @@ venv/Downloads/bin/python plot-auroc-profiles.py \\
     --y_step1 0.1 --y_step2 0.01 \\
     --min_y 0.0 --max_y 1.0 \\
     --xsize 16 --ysize 8 -f pdf \\
-    -o ${AUROC_PLOT} 
+    -o ${AUROC_PLOT}
+ 
 """
     parser = argparse.ArgumentParser(description=description_text, formatter_class=argparse.RawDescriptionHelpFormatter)
 
