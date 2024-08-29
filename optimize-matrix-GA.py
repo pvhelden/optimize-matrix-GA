@@ -910,7 +910,7 @@ RSAT docker configuration:
 
 Usage example: 
 
-    export PYTHON_PATH=venv/Downloads/bin/python # python path should be adapted to your local settings
+    export PYTHON_PATH=venv/bin/python # python path should be adapted to your local settings
     $PYTHON_PATH optimize-matrix-GA.py -v 3 -t 10 -g 5 -c 5 -s 5 \\
       -m data/matrices/GABPA_CHS_THC_0866_peakmo-clust-trimmed.tf \\
       -p data/sequences/THC_0866.fasta -n data/sequences/THC_0866_rand-loci_noN.fa \\
