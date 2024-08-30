@@ -53,6 +53,113 @@ def log_message(msg_type, level, message):
             print(formatted_message)
 
 
+def check_file(file_path, expected_format):
+    """
+    Check if the file exists, is not empty, is a text file, and matches the expected format.
+
+    Parameters:
+    -----------
+    file_path : str
+        The path to the file that needs to be checked.
+    expected_format : str
+        The expected format of the file. Should be either 'transfac' or 'fasta'.
+
+    Returns:
+    --------
+    None
+        This function does not return any value. It exits the program with an error message if any check fails.
+
+    Notes:
+    ------
+    This is ChatGPT-generated code.
+    """
+    # Check if file exists
+    if not os.path.exists(file_path):
+        print(f"Error: The file '{file_path}' does not exist.")
+        sys.exit(1)
+
+    # Check if file is not empty
+    if os.path.getsize(file_path) == 0:
+        print(f"Error: The file '{file_path}' is empty.")
+        sys.exit(1)
+
+    # Check if file is a text file
+    try:
+        with open(file_path, 'r') as f:
+            f.read(1024)  # Try reading the first 1KB to ensure it's a text file
+    except UnicodeDecodeError:
+        print(f"Error: The file '{file_path}' is not a text file.")
+        sys.exit(1)
+
+    # Validate format based on the expected format
+    if expected_format == 'transfac':
+        if not validate_transfac(file_path):
+            print(f"Error: The file '{file_path}' is not in the correct TRANSFAC format.")
+            sys.exit(1)
+    elif expected_format == 'fasta':
+        if not validate_fasta(file_path):
+            print(f"Error: The file '{file_path}' is not in the correct FASTA format.")
+            sys.exit(1)
+    else:
+        print(f"Error: Unsupported format '{expected_format}'.")
+        sys.exit(1)
+
+    log_message("info", 2,
+                f"File '{file_path}' passed all checks ({expected_format} format)")
+
+def validate_transfac(file_path):
+    """
+    Validate if the file is in TRANSFAC format.
+
+    Parameters:
+    -----------
+    file_path : str
+        The path to the file that needs to be validated.
+
+    Returns:
+    --------
+    bool
+        Returns True if the file is in the correct TRANSFAC format, otherwise False.
+
+    Notes:
+    ------
+    This is a basic check and might need to be extended for full compliance.
+    This is ChatGPT-generated code.
+    """
+    with open(file_path, 'r') as f:
+        lines = f.readlines()
+        # TRANSFAC typically starts with a 'ID' or 'AC' line
+        if not lines or not (lines[0].startswith('ID') or lines[0].startswith('AC')):
+            return False
+    return True
+
+def validate_fasta(file_path):
+    """
+    Validate if the file is in FASTA format.
+
+    Parameters:
+    -----------
+    file_path : str
+        The path to the file that needs to be validated.
+
+    Returns:
+    --------
+    bool
+        Returns True if the file is in the correct FASTA format, otherwise False.
+
+    Notes:
+    ------
+    This is a basic check and might need to be extended for full compliance.
+    This is ChatGPT-generated code.
+    """
+    with open(file_path, 'r') as f:
+        lines = f.readlines()
+        # FASTA typically starts with a '>' character
+        if not lines or not lines[0].startswith('>'):
+            return False
+    return True
+
+
 def parse_transfac(file_path):
     """
     Parses a TRANSFAC format file containing one or more matrices and returns a list of parsed matrices.
@@ -846,6 +953,13 @@ def main(verbosity, threads, generations, children, select,
 
     # Set verbosity level
     set_verbosity(verbosity)
+
+    # Check the matrix file
+    check_file(matrices, 'transfac')
+
+    # Check the sequence file
+    check_file(positives, 'fasta')
+    check_file(negatives, 'fasta')
 
     # Create output directory (dirname of output prefix) if it does not exist
     output_dir = os.path.dirname(output_prefix)
