@@ -19,14 +19,14 @@ def plot_tree(input_file, output_file, file_format, title, subtitle, min_y=None,
         data = data[data['generation'] <= max_g]
 
     # Check if data is empty after filtering
-    if data.empty:
-        raise ValueError("Filtered data is empty. Check the generation range specified.")
+    if data.is_empty():
+        raise ValueError("Filtered data is empty. Check the specified generation range.")
 
     # Create a directed graph
     G = nx.DiGraph()
 
     # Add nodes and edges to the graph
-    for _, row in data.iterrows():
+    for row in data.iter_rows(named=True):
         G.add_node(row['AC'], generation=row['generation'], AuROC=row['AuROC'])
         if row['parent_AC'] != "Origin":
             G.add_edge(row['parent_AC'], row['AC'])
@@ -34,11 +34,11 @@ def plot_tree(input_file, output_file, file_format, title, subtitle, min_y=None,
     # Create a layout for nodes: position them based on their generation and AuROC score
     pos = {}
     for node in G.nodes():
-        generation = data.loc[data['AC'] == node, 'generation']
-        AuROC = data.loc[data['AC'] == node, 'AuROC']
+        generation = data.filter(pl.col('AC') == node).select('generation')
+        AuROC = data.filter(pl.col('AC') == node).select('AuROC')
 
-        if not generation.empty and not AuROC.empty:
-            pos[node] = (generation.values[0], AuROC.values[0])
+        if not generation.is_empty() and not AuROC.is_empty():
+            pos[node] = (generation.to_numpy()[0], AuROC.to_numpy()[0])
         else:
             print(f"Warning: Node '{node}' is missing from the filtered data.")
 
