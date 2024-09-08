@@ -107,6 +107,7 @@ def check_file(file_path, expected_format):
     log_message("info", 2,
                 f"File '{file_path}' passed all checks ({expected_format} format)")
 
+
 def validate_transfac(file_path):
     """
     Validate if the file is in TRANSFAC format.
@@ -132,6 +133,7 @@ def validate_transfac(file_path):
         if not lines or not (lines[0].startswith('ID') or lines[0].startswith('AC')):
             return False
     return True
+
 
 def validate_fasta(file_path):
     """
@@ -871,7 +873,7 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
         matrix['metadata']['parent_AC'] = "Origin"
         matrix['metadata']['parent_ID'] = "Origin"
 
-    ## Prepare a DataFrame to collect the score tables
+    # Prepare a DataFrame to collect the score tables
     score_table_all_generations = pl.DataFrame([])
 
     # Evolution Process
@@ -1108,24 +1110,23 @@ def build_consensus(pcm, prior=None, pseudocount=1):
     return ''.join(consensus)
 
 
-def main(verbosity, threads, generations, children, select,
-         matrices, positives, negatives, background, rsat_cmd, output_prefix):
+def main(args):
     # ----------------------------------------------------------------
     # Parameters
     # ----------------------------------------------------------------
 
     # Set verbosity level
-    set_verbosity(verbosity)
+    set_verbosity(args.verbosity)
 
     # Check the matrix file
-    check_file(matrices, 'transfac')
+    check_file(args.matrices, 'transfac')
 
     # Check the sequence file
-    check_file(positives, 'fasta')
-    check_file(negatives, 'fasta')
+    check_file(args.positives, 'fasta')
+    check_file(args.negatives, 'fasta')
 
     # Create output directory (dirname of output prefix) if it does not exist
-    output_dir = os.path.dirname(output_prefix)
+    output_dir = os.path.dirname(args.output_prefix)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
@@ -1138,16 +1139,17 @@ def main(verbosity, threads, generations, children, select,
     # ----------------------------------------------------------------
     # Load original matrices
     # ----------------------------------------------------------------
-    log_message("info", 1, f"Loading matrices from file {matrices}")
-    parsed_matrices = parse_transfac(matrices)
+    log_message("info", 1, f"Loading matrices from file {args.matrices}")
+    parsed_matrices = parse_transfac(args.matrices)
 
     # ----------------------------------------------------------------
     # Run genetic algorithm to optimize the matrices
     # ----------------------------------------------------------------
 
     genetic_algorithm(
-        parsed_matrices, rsat_cmd, positives, negatives, background, output_prefix=output_prefix, tmp_dir=tmp_dir,
-        generations=generations, select=select, children=children, threads=threads)
+        parsed_matrices, args.rsat_cmd, args.positives, args.negatives, args.background,
+        output_prefix=args.output_prefix, tmp_dir=tmp_dir,
+        generations=args.generations, select=args.select, children=args.children, threads=args.threads)
 
     log_message("info", 0, f"Job's done.")
 
@@ -1224,8 +1226,11 @@ Usage example:
         '-r', '--rsat_cmd', type=str, required=True,
         help='RSAT command, either a full path or a container (docker, Apptainer) with parameters (str)')
     parser.add_argument(
+        '--selection_level', type=str, choices=['population', 'clone'], default='population',
+        help='Selection level. Accepted values: population (default) or clone')
+    parser.add_argument(
         '-o', '--output_prefix', type=str, required=True,
         help='Output prefix. It can contain a folder path, which is created if not existing (str)')
     args = parser.parse_args()
-    main(args.verbosity, args.threads, args.generations, args.children, args.select,
-         args.matrices, args.positives, args.negatives, args.background, args.rsat_cmd, args.output_prefix)
+
+    main(args)
