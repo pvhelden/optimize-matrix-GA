@@ -941,14 +941,8 @@ def genetic_algorithm(matrices, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, o
                 next_generation.extend(mutated_matrices)
             current_generation = next_generation
 
-    # Export aggregated score table to TSV
-    log_message("info", 1, f"All generations completed")
-    matrix_scores_tsv = f"{output_prefix}_gen{0}-{generations}_score_table.tsv"
-    log_message("info", 2, f"Saving score table to {matrix_scores_tsv}")
-    score_table_all_generations.write_csv(matrix_scores_tsv, separator='\t', include_header=True)
-
     # Return the final set of optimized matrices + score table for all the generations
-    return {"matrices": current_generation, "score_table": score_table_all_generations}
+    return current_generation, score_table_all_generations
 
 
 def build_pcm(sequences):
@@ -1140,12 +1134,29 @@ def main(args):
     # Run genetic algorithm to optimize the matrices
     # ----------------------------------------------------------------
 
-    genetic_algorithm(
-        parsed_matrices, args.rsat_cmd, args.positives, args.negatives, args.background,
-        output_prefix=args.output_prefix, tmp_dir=tmp_dir,
-        generations=args.generations, select=args.select, children=args.children, threads=args.threads)
+    if args.selection_level == 'clone':
+        matrices = []
+        score_table = pl.DataFrame()
+        for index, matrix in enumerate(parsed_matrices):
+            log_message("info", 0, f'Running genetic algorithm on clone {index+1}/{len(parsed_matrices)}')
+            new_matrices, new_score_table = genetic_algorithm(
+                [matrix], args.rsat_cmd, args.positives, args.negatives, args.background,
+                output_prefix=f'{args.output_prefix}_{args.selection_level}{index + 1}', tmp_dir=tmp_dir,
+                generations=args.generations, select=args.select, children=args.children, threads=args.threads)
+            matrices.extend(new_matrices)
+            score_table = pl.concat([score_table, new_score_table])
+    else:  # args.selection_level == 'population'
+        log_message("info", 1, 'Running genetic algorithm on whole population')
+        matrices, score_table = genetic_algorithm(
+            parsed_matrices, args.rsat_cmd, args.positives, args.negatives, args.background,
+            output_prefix=f'{args.output_prefix}_{args.selection_level}', tmp_dir=tmp_dir,
+            generations=args.generations, select=args.select, children=args.children, threads=args.threads)
 
-    log_message("info", 0, f"Job's done.")
+    # Export aggregated score table to TSV
+    log_message("info", 1, f"All generations completed")
+    matrix_scores_tsv = f"{args.output_prefix}_{args.selection_level}_gen{0}-{args.generations}_score_table.tsv"
+    log_message("info", 2, f"Saving score table to {matrix_scores_tsv}")
+    score_table.write_csv(matrix_scores_tsv, separator='\t', include_header=True)
 
     # # Export matrix scores to JSON
     # matrix_scores_json = outfile_prefix + '_matrix_scores.json'
@@ -1156,6 +1167,8 @@ def main(args):
     # # Export matrix scores to TSV
     # matrix_scores_tsv = outfile_prefix + '_matrix_scores.tsv'
     # matrix_scores_df.write_csv(matrix_scores_tsv, separator='\t')
+
+    log_message("info", 0, f"Job's done.")
 
 
 if __name__ == '__main__':
