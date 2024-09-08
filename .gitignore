@@ -168,3 +168,5 @@ results/matrices
 tmp
 results
 .DS_Store
+
+.rsat_tmp_dir/
