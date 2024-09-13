@@ -1130,7 +1130,7 @@ def read_fasta(file_path):
             yield header, ''.join(sequence)
 
 
-def pcm_to_pwm(pcm_df, pseudocount=1, background_freq=None):
+def pcm_to_pwm(pcm_df, pseudocount=1, priors=None):
     """
     Converts a Polars DataFrame representing a Position Count Matrix (PCM) into a Position Weight Matrix (PWM).
 
@@ -1149,8 +1149,8 @@ def pcm_to_pwm(pcm_df, pseudocount=1, background_freq=None):
         raise ValueError(f"The PCM DataFrame must contain the following columns: {required_columns}")
 
     # Set default background frequencies if not provided (uniform distribution)
-    if background_freq is None:
-        background_freq = {'A': 0.25, 'C': 0.25, 'G': 0.25, 'T': 0.25}
+    if priors is None:
+        priors = {'A': 0.25, 'C': 0.25, 'G': 0.25, 'T': 0.25}
 
     # Convert the PCM into PWM
     pwm_data = []
@@ -1158,10 +1158,12 @@ def pcm_to_pwm(pcm_df, pseudocount=1, background_freq=None):
         total_counts = sum(row.values())
         pwm_row = {}
         for nucleotide, count in row.items():
+            if nucleotide not in required_columns:
+                continue
             # Calculate the frequency with pseudocount
-            frequency = (count + pseudocount) / (total_counts + 4 * pseudocount)
+            frequency = (count + pseudocount * priors[nucleotide]) / (total_counts + pseudocount)
             # Calculate log-odds ratio for the PWM
-            pwm_value = np.log2(frequency / background_freq[nucleotide])
+            pwm_value = np.log(frequency / priors[nucleotide])
             pwm_row[nucleotide] = pwm_value
         pwm_data.append(pwm_row)
 
@@ -1173,6 +1175,10 @@ def pcm_to_pwm(pcm_df, pseudocount=1, background_freq=None):
 
 def scan_sequences(seq_file, label, matrix_file, bg_file, score_col='weight', group_col='ft_name',
                    score_threshold=-100):
+    matrices = parse_transfac(matrix_file)
+    for matrix_dic in matrices:
+        matrix_dic['pwm'] = pcm_to_pwm(matrix_dic['matrix'])
+
     for header, seq in read_fasta(seq_file):
         print(f"Header: {header}")
         print(f"Sequence: {seq[:30]}...")  # Print the first 30 bases of each sequence
