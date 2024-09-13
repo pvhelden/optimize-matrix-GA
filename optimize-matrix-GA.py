@@ -652,8 +652,8 @@ def run_command(command):
     return result
 
 
-def scan_sequences(rsat_cmd, seq_file, label, matrix_file, bg_file,
-                   score_col='weight', group_col='ft_name', score_threshold=-100):
+def scan_sequences_rsat(rsat_cmd, seq_file, label, matrix_file, bg_file,
+                        score_col='weight', group_col='ft_name', score_threshold=-100):
     scan_cmd = (rsat_cmd +
                 ' matrix-scan  -quick -v 1'
                 ' -m ' + matrix_file +
@@ -719,11 +719,11 @@ def score_matrix(matrix, rsat_cmd, seq_file_pos, seq_file_neg, bg_file, tmp_dir=
     # Compute performance statistics for this matrix
     # matrix_stat = score_matrix(rsat_cmd, seq_file_pos, seq_file_neg, single_matrix_file, bg_file)
     log_message("info", 4, f"Scanning positive sequence file: {seq_file_pos}")
-    pos_hits = scan_sequences(rsat_cmd=rsat_cmd, seq_file=seq_file_pos, label=1,
-                              matrix_file=single_matrix_file, bg_file=bg_file)
+    pos_hits = scan_sequences_rsat(rsat_cmd=rsat_cmd, seq_file=seq_file_pos, label=1,
+                                   matrix_file=single_matrix_file, bg_file=bg_file)
     log_message("info", 4, "Scanning negative sequence file: " + seq_file_neg)
-    neg_hits = scan_sequences(rsat_cmd=rsat_cmd, seq_file=seq_file_neg, label=0,
-                              matrix_file=single_matrix_file, bg_file=bg_file)
+    neg_hits = scan_sequences_rsat(rsat_cmd=rsat_cmd, seq_file=seq_file_neg, label=0,
+                                   matrix_file=single_matrix_file, bg_file=bg_file)
     log_message("info", 4, "Computing performance statistics (pos vs neg)")
     matrix_stat = compute_stats(pos_data=pos_hits, neg_data=neg_hits, score_col='weight', group_col='ft_name')
 
@@ -1098,6 +1098,46 @@ def build_consensus(pcm, prior=None, pseudocount=1):
     return ''.join(consensus)
 
 
+def read_fasta(file_path):
+    """
+    Generator function to read sequences from a FASTA file one by one.
+
+    Parameters:
+    file_path (str): Path to the FASTA file.
+
+    Yields:
+    tuple: A tuple containing the sequence header and the sequence.
+    """
+    header = None
+    sequence = []
+
+    with open(file_path, 'r') as fasta_file:
+        for line in fasta_file:
+            line = line.strip()
+            if not line:
+                continue  # Skip empty lines
+            if line.startswith(">"):
+                # If this is not the first header, yield the previous sequence
+                if header:
+                    yield header, ''.join(sequence)
+                header = line[1:]  # Capture the header, removing the ">"
+                sequence = []  # Reset sequence for new entry
+            else:
+                sequence.append(line)  # Add sequence lines to the list
+
+        # Yield the last sequence in the file
+        if header:
+            yield header, ''.join(sequence)
+
+
+def scan_sequences(seq_file, label, matrix_file, bg_file, score_col='weight', group_col='ft_name',
+                   score_threshold=-100):
+    for header, seq in read_fasta(seq_file):
+        print(f"Header: {header}")
+        print(f"Sequence: {seq[:30]}...")  # Print the first 30 bases of each sequence
+        print(f"Length: {len(seq)}\n")
+
+
 def main(args):
     # ----------------------------------------------------------------
     # Parameters
@@ -1138,7 +1178,7 @@ def main(args):
         matrices = []
         score_table = pl.DataFrame()
         for index, matrix in enumerate(parsed_matrices):
-            log_message("info", 0, f'Running genetic algorithm on clone {index+1}/{len(parsed_matrices)}')
+            log_message("info", 0, f'Running genetic algorithm on clone {index + 1}/{len(parsed_matrices)}')
             new_matrices, new_score_table = genetic_algorithm(
                 [matrix], args.rsat_cmd, args.positives, args.negatives, args.background,
                 output_prefix=f'{args.output_prefix}_{args.selection_level}{index + 1}', tmp_dir=tmp_dir,
