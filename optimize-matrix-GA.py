@@ -1130,6 +1130,47 @@ def read_fasta(file_path):
             yield header, ''.join(sequence)
 
 
+def pcm_to_pwm(pcm_df, pseudocount=1, background_freq=None):
+    """
+    Converts a Polars DataFrame representing a Position Count Matrix (PCM) into a Position Weight Matrix (PWM).
+
+    Parameters:
+    pcm_df (pl.DataFrame): A Polars DataFrame representing the PCM, with columns ['A', 'C', 'G', 'T'].
+    pseudocount (float): A small value added to the counts to avoid log(0). Default is 1.
+    background_freq (dict): A dictionary representing background frequencies of nucleotides (A, C, G, T).
+                            If None, a uniform distribution of 0.25 for each nucleotide is assumed.
+
+    Returns:
+    pl.DataFrame: A Polars DataFrame representing the PWM with the same structure as the PCM.
+    """
+    # Ensure the PCM DataFrame contains the necessary columns
+    required_columns = ['A', 'C', 'G', 'T']
+    if not all(col in pcm_df.columns for col in required_columns):
+        raise ValueError(f"The PCM DataFrame must contain the following columns: {required_columns}")
+
+    # Set default background frequencies if not provided (uniform distribution)
+    if background_freq is None:
+        background_freq = {'A': 0.25, 'C': 0.25, 'G': 0.25, 'T': 0.25}
+
+    # Convert the PCM into PWM
+    pwm_data = []
+    for row in pcm_df.iter_rows(named=True):
+        total_counts = sum(row.values())
+        pwm_row = {}
+        for nucleotide, count in row.items():
+            # Calculate the frequency with pseudocount
+            frequency = (count + pseudocount) / (total_counts + 4 * pseudocount)
+            # Calculate log-odds ratio for the PWM
+            pwm_value = np.log2(frequency / background_freq[nucleotide])
+            pwm_row[nucleotide] = pwm_value
+        pwm_data.append(pwm_row)
+
+    # Convert the PWM data back into a Polars DataFrame
+    pwm_df = pl.DataFrame(pwm_data)
+
+    return pwm_df
+
+
 def scan_sequences(seq_file, label, matrix_file, bg_file, score_col='weight', group_col='ft_name',
                    score_threshold=-100):
     for header, seq in read_fasta(seq_file):
