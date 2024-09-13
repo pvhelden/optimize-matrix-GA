@@ -8,10 +8,10 @@ import random
 import re
 import subprocess
 import sys
-from datetime import datetime
 
 import numpy as np
 import polars as pl
+import tqdm
 from loguru import logger
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
 
@@ -1179,10 +1179,26 @@ def scan_sequences(seq_file, label, matrix_file, bg_file, score_col='weight', gr
     for matrix_dic in matrices:
         matrix_dic['pwm'] = pcm_to_pwm(matrix_dic['matrix'])
 
-    for header, seq in read_fasta(seq_file):
-        print(f"Header: {header}")
-        print(f"Sequence: {seq[:30]}...")  # Print the first 30 bases of each sequence
-        print(f"Length: {len(seq)}\n")
+    results = []
+    with tqdm.tqdm() as pbar:
+        for header, seq in read_fasta(seq_file):
+            pbar.update()
+            for matrix_dic in matrices:
+                best_score = -np.inf
+                pwm = matrix_dic['pwm']
+                motif_size = pwm.shape[1]
+                for pos in range(0, len(seq) - motif_size + 1):
+                    substring = seq[pos:pos + motif_size]
+                    score = 0
+                    for index, char in enumerate(substring):
+                        score += pwm[index, char.capitalize()]
+                    if score > best_score:
+                        best_score = score
+
+                if score >= score_threshold:
+                    results.append({score_col: best_score, group_col: matrix_dic['metadata']['ID'], 'label': label})
+
+    return pl.DataFrame(results)
 
 
 def main(args):
